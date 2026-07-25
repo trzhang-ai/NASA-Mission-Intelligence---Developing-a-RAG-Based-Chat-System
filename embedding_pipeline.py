@@ -13,6 +13,7 @@ Supported data sources:
 - Challenger transcribed audio data (text files only)
 """
 
+from nasa_text_cleaners import build_all_nasa_dataframes
 import os
 import json
 import logging
@@ -490,6 +491,42 @@ class ChromaEmbeddingPipelineTextOnly:
         
         return filtered_files
     
+    def chunk_cleaned_records_by_file(
+        self,
+        cleaned_df: Any,
+    ) -> Dict[Path, List[Tuple[str, Dict[str, Any]]]]:
+        """
+        Chunk validated cleaner records and group chunks by source file.
+
+        This method performs no OpenAI calls and no ChromaDB writes.
+        """
+        documents_by_file: Dict[
+            Path,
+            List[Tuple[str, Dict[str, Any]]],
+        ] = {}
+
+        for position, row in cleaned_df.iterrows():
+            document = row["document"]
+            metadata = row["metadata"]
+
+            if not isinstance(metadata, dict):
+                raise ValueError(
+                    f"Metadata at position {position} must be a dictionary"
+                )
+
+            source_path = metadata.get("source_path")
+            if not source_path:
+                raise ValueError(
+                    f"Metadata at position {position} has no source_path"
+                )
+
+            file_path = Path(source_path)
+            chunks = self.chunk_text(document, metadata)
+
+            documents_by_file.setdefault(file_path, []).extend(chunks)
+
+        return documents_by_file
+
     def add_documents_to_collection(self, documents: List[Tuple[str, Dict[str, Any]]], 
                                    file_path: Path, batch_size: int = 50, 
                                    update_mode: str = 'skip') -> Dict[str, int]:
@@ -705,7 +742,12 @@ class ChromaEmbeddingPipelineTextOnly:
             stats["added"] = len(new_documents)
             return stats
     
-    def process_all_text_data(self, base_path: str, update_mode: str = 'skip') -> Dict[str, int]:
+    def process_all_text_data(
+        self,
+        base_path: str,
+        update_mode: str = "skip",
+        batch_size: int = 50,
+    ) -> Dict[str, int]:
         """
         Process all text files and add to ChromaDB
         
@@ -715,7 +757,7 @@ class ChromaEmbeddingPipelineTextOnly:
                         'skip' - skip existing documents (default)
                         'update' - update existing documents
                         'replace' - delete all existing documents from file and re-add
-            
+            batch_size: Number of chunks written in each ChromaDB batch
         Returns:
             Statistics about processed files
         """
@@ -728,13 +770,64 @@ class ChromaEmbeddingPipelineTextOnly:
             'total_chunks': 0,
             'missions': {}
         }
-        
-        # TODO: Get files to process
-        # TODO: Loop through each file
-        # TODO: Process file and add to collection
-        # TODO: Update statistics
-        # TODO: Handle errors gracefully
-        
+        valid_update_modes = {"skip", "update", "replace"}
+        if update_mode not in valid_update_modes:
+            raise ValueError(
+                "update_mode must be 'skip', 'update', or 'replace'"
+            )
+        if (
+            not isinstance(batch_size, int)
+            or isinstance(batch_size, bool)
+            or batch_size <= 0
+        ):
+            raise ValueError("batch_size must be a positive integer")
+        # Build validated semantic records from the cleaned NASA corpus.
+        _, _, cleaned_df = build_all_nasa_dataframes(base_path)
+        # Chunk each record while preserving its provenance, then group by source file.
+        documents_by_file = self.chunk_cleaned_records_by_file(cleaned_df)
+        stats["total_chunks"] = sum(
+            len(documents)
+            for documents in documents_by_file.values()
+        )
+        logger.info(
+            "Prepared %d chunks from %d source files",
+            stats["total_chunks"],
+            len(documents_by_file),
+        )
+        for file_path, documents in documents_by_file.items():
+            try:
+                file_stats = self.add_documents_to_collection(
+                    documents=documents,
+                    file_path=file_path,
+                    batch_size=batch_size,
+                    update_mode=update_mode,
+                )
+                stats["files_processed"] += 1
+                stats["documents_added"] += file_stats["added"]
+                stats["documents_updated"] += file_stats["updated"]
+                stats["documents_skipped"] += file_stats["skipped"]
+                mission = documents[0][1].get("mission", "unknown")
+                mission_stats = stats["missions"].setdefault(
+                    mission,
+                    {
+                        "files": 0,
+                        "chunks": 0,
+                        "added": 0,
+                        "updated": 0,
+                        "skipped": 0,
+                    },
+                )
+                mission_stats["files"] += 1
+                mission_stats["chunks"] += len(documents)
+                mission_stats["added"] += file_stats["added"]
+                mission_stats["updated"] += file_stats["updated"]
+                mission_stats["skipped"] += file_stats["skipped"]
+            except Exception:
+                stats["errors"] += 1
+                logger.exception(
+                    "Failed to process cleaned records from %s",
+                    file_path,
+                )
         return stats
     
     def get_collection_info(self) -> Dict[str, Any]:
@@ -853,7 +946,14 @@ class ChromaEmbeddingPipelineTextOnly:
 def main():
     """Main function"""
     parser = argparse.ArgumentParser(description='ChromaDB Embedding Pipeline for NASA Data')
-    parser.add_argument('--data-path', default='.', help='Path to data directories')
+    parser.add_argument(
+        "--data-path",
+        default="data_text",
+        help=(
+            "Directory containing the Apollo 11, Apollo 13, "
+            "and Challenger data folders"
+        ),
+    )
     parser.add_argument('--openai-key', required=True, help='OpenAI API key')
     parser.add_argument('--chroma-dir', default='./chroma_db_openai', help='ChromaDB persist directory')
     parser.add_argument('--collection-name', default='nasa_space_missions_text', help='Collection name')
@@ -866,9 +966,7 @@ def main():
     parser.add_argument('--test-query', help='Test query after processing')
     parser.add_argument('--stats-only', action='store_true', help='Only show collection statistics')
     parser.add_argument('--delete-source', help='Delete all documents from a specific source pattern')
-    
     args = parser.parse_args()
-    
     # Initialize pipeline
     logger.info("Initializing ChromaDB Embedding Pipeline...")
     pipeline = ChromaEmbeddingPipelineTextOnly(
@@ -879,13 +977,11 @@ def main():
         chunk_size=args.chunk_size,
         chunk_overlap=args.chunk_overlap
     )
-    
     # Handle delete source operation
     if args.delete_source:
         deleted_count = pipeline.delete_documents_by_source(args.delete_source)
         logger.info(f"Deleted {deleted_count} documents matching source pattern: {args.delete_source}")
         return
-    
     # If stats only, show collection statistics and exit
     if args.stats_only:
         logger.info("Collection Statistics:")
@@ -893,16 +989,16 @@ def main():
         for key, value in stats.items():
             logger.info(f"{key}: {value}")
         return
-    
     # Process all data
     logger.info(f"Starting text data processing with update mode: {args.update_mode}")
     start_time = time.time()
-    
-    stats = pipeline.process_all_text_data(args.data_path, update_mode=args.update_mode)
-    
+    stats = pipeline.process_all_text_data(
+        args.data_path,
+        update_mode=args.update_mode,
+        batch_size=args.batch_size,
+    )
     end_time = time.time()
     processing_time = end_time - start_time
-    
     # Print results
     logger.info("=" * 60)
     logger.info("PROCESSING COMPLETE")
@@ -914,18 +1010,15 @@ def main():
     logger.info(f"Documents skipped (already exist): {stats['documents_skipped']}")
     logger.info(f"Errors: {stats['errors']}")
     logger.info(f"Processing time: {processing_time:.2f} seconds")
-    
     # Mission breakdown
     logger.info("\nMission breakdown:")
     for mission, mission_stats in stats['missions'].items():
         logger.info(f"  {mission}: {mission_stats['files']} files, {mission_stats['chunks']} chunks")
         logger.info(f"    Added: {mission_stats['added']}, Updated: {mission_stats['updated']}, Skipped: {mission_stats['skipped']}")
-    
     # Collection info
     collection_info = pipeline.get_collection_info()
     logger.info(f"\nCollection: {collection_info.get('collection_name', 'N/A')}")
     logger.info(f"Total documents in collection: {collection_info.get('document_count', 'N/A')}")
-    
     # Test query if provided
     if args.test_query:
         logger.info(f"\nTesting query: '{args.test_query}'")
@@ -934,7 +1027,6 @@ def main():
             logger.info(f"Found {len(results['documents'][0])} results:")
             for i, doc in enumerate(results['documents'][0][:3]):  # Show top 3
                 logger.info(f"Result {i+1}: {doc[:200]}...")
-    
     logger.info("Pipeline completed successfully!")
 
 if __name__ == "__main__":
