@@ -1,0 +1,149 @@
+{
+  "corpus": "corpus_df.csv (3,064 chunks across 3 NASA missions)",
+  "corpus_note": "All questions and answers are grounded strictly in corpus_df.csv, verified against the 'mission' metadata field and the chunk text. Missions present: apollo11 (1,372 chunks: flight-evaluation report + PAO/TEC/CM transcripts), apollo13 (1,487 chunks: CM/PAO/TEC transcripts only), challenger (205 chunks: three STS-51L mission-audio transcripts only). Apollo 11 was a nominal flight, so its 'disaster_analysis' item covers a real in-report anomaly rather than a mission failure. Challenger and Apollo 13 material is transcript-derived; some proper names are rendered phonetically in the source audio (e.g. Scobee as 'Cobi', Resnik as 'Resnick', Christa as 'Krista') and are given here in their correct spelling.",
+  "mission_breakdown": {
+    "apollo11": 1372,
+    "apollo13": 1487,
+    "challenger": 205,
+    "total": 3064
+  },
+  "question_count": 17,
+  "questions": [
+    {
+      "id": "q01",
+      "mission": "apollo11",
+      "category": "overview",
+      "user_input": "What was the primary objective of the AS-506 (Apollo 11) mission, and where did it fall in the Apollo/Saturn V program?",
+      "reference": "The primary objective was to land astronauts on the lunar surface and return them safely to Earth. AS-506 was the sixth flight of the Apollo/Saturn V flight test program and the fourth manned Saturn V Apollo space vehicle.",
+      "source": "apollo11 report (AS-506 Flight Evaluation) — Mission Plan / Flight Test Summary"
+    },
+    {
+      "id": "q02",
+      "mission": "apollo11",
+      "category": "crew",
+      "user_input": "Who were the three Apollo 11 crew members and what role did each hold?",
+      "reference": "Neil Armstrong was Mission Commander, Lt. Col. Michael Collins was Command Module Pilot, and Lt. Col. Edwin Aldrin, Jr. was Lunar Module Pilot.",
+      "source": "apollo11 report — Mission Plan"
+    },
+    {
+      "id": "q03",
+      "mission": "apollo11",
+      "category": "timeline",
+      "user_input": "When and from where was AS-506 launched, and were there any unscheduled holds?",
+      "reference": "AS-506 was launched at 09:32:00 Eastern Daylight Time on July 16, 1969, from Kennedy Space Center, Complex 39, Pad A. The countdown was completed without any unscheduled holds.",
+      "source": "apollo11 report — Flight Test Summary / Launch Operations"
+    },
+    {
+      "id": "q04",
+      "mission": "apollo11",
+      "category": "technical",
+      "user_input": "What was the vehicle mass at S-IC ignition, and into what Earth Parking Orbit was it inserted?",
+      "reference": "Vehicle mass at S-IC ignition was 2,941,221 kilograms (6,484,282 lbm). The vehicle was inserted into a 183.8 by 186.5 kilometer (99.2 by 100.7 n mi) Earth Parking Orbit, with a mass at orbit insertion of 135,669 kilograms (229,099 lbm).",
+      "source": "apollo11 report — Mission Plan"
+    },
+    {
+      "id": "q05",
+      "mission": "apollo11",
+      "category": "emergency",
+      "user_input": "How did the Emergency Detection System (EDS) perform on Apollo 11, and were any abort limits exceeded?",
+      "reference": "EDS performance was normal and no abort limits were exceeded. All launch vehicle EDS parameters stayed well within acceptable limits and EDS-related sequential events occurred as expected.",
+      "source": "apollo11 report — Emergency Detection System"
+    },
+    {
+      "id": "q06",
+      "mission": "apollo11",
+      "category": "disaster_analysis",
+      "user_input": "Apollo 11 flew nominally, but what in-flight anomaly did the report investigate on the ST-124M-3 inertial platform, and what was its effect?",
+      "reference": "At 3.3 seconds after liftoff the platform-measured crossrange (Y) velocity showed a negative shift of about 1.8 m/s (5.9 ft/s). The probable cause was the Y accelerometer head momentarily contacting an internal mechanical stop, likely driven by 35-45 Hz vibration. It had negligible effect on launch vehicle performance.",
+      "source": "apollo11 report — Guidance and Navigation"
+    },
+    {
+      "id": "q07",
+      "mission": "apollo13",
+      "category": "overview",
+      "user_input": "How did the Apollo 13 mission change after its in-flight failure?",
+      "reference": "After the failure, the planned lunar landing was scrubbed and the flight was continued as a lunar fly-by 'deep space abort' mission. With the service module oxygen and fuel cells compromised, the crew and ground turned to using the Lunar Module as a lifeboat.",
+      "source": "apollo13 PAO/TEC transcripts"
+    },
+    {
+      "id": "q08",
+      "mission": "apollo13",
+      "category": "crew",
+      "user_input": "Who were the Apollo 13 crew members, and what was the command module's callsign?",
+      "reference": "The commander was Jim Lovell, the command module pilot was Jack Swigert, and the lunar module pilot was Fred Haise. The command module's callsign was Odyssey.",
+      "source": "apollo13 PAO transcript"
+    },
+    {
+      "id": "q09",
+      "mission": "apollo13",
+      "category": "emergency",
+      "user_input": "How did the Apollo 13 crew first report the accident to Mission Control, and what immediately preceded it?",
+      "reference": "The crew radioed 'Houston, we've had a problem,' reporting a Main B bus undervolt. It followed a fairly large bang associated with a caution and warning alarm; this was the first hint that something was wrong.",
+      "source": "apollo13 TEC/PAO transcripts"
+    },
+    {
+      "id": "q10",
+      "mission": "apollo13",
+      "category": "disaster_analysis",
+      "user_input": "According to the transcripts, what happened to the oxygen and fuel-cell systems, and what decision followed?",
+      "reference": "Pressure dropped rapidly in service module liquid oxygen tank No. 2, and fuel cells 1 and 3 failed shortly thereafter. A decision was made to scrub any landing attempt and continue as a lunar fly-by abort; with the remaining oxygen tank pressure dropping and load rising on fuel cell 2, the LM-lifeboat plan was adopted.",
+      "source": "apollo13 PAO/TEC transcripts"
+    },
+    {
+      "id": "q11",
+      "mission": "apollo13",
+      "category": "timeline",
+      "user_input": "At what time was Apollo 13 launched?",
+      "reference": "Apollo 13 was counted down to and launched at 2:13 P.M. Eastern Standard Time, from Kennedy Space Center.",
+      "source": "apollo13 PAO transcript (Kennedy Launch Control)"
+    },
+    {
+      "id": "q12",
+      "mission": "apollo13",
+      "category": "technical",
+      "user_input": "What liquid-oxygen problem did the launch team deal with during the Apollo 13 countdown, and was it resolved before launch?",
+      "reference": "During the countdown, one of the vent valves on the first-stage liquid oxygen tank appeared to be sticking. (Boil-off from the liquid oxygen is normally vented to the atmosphere.) The team reported the problem solved and the valve brought closed before launch.",
+      "source": "apollo13 PAO transcript (Kennedy Launch Control)"
+    },
+    {
+      "id": "q13",
+      "mission": "challenger",
+      "category": "overview",
+      "user_input": "What was notable about Mission 51-L in the Space Shuttle program and its crew makeup?",
+      "reference": "Mission 51-L was the 25th launch of the Space Transportation System and the 10th flight of the orbiter Challenger. It carried the first private citizen to fly aboard the shuttle under NASA's Spaceflight Participant Program — teacher Christa McAuliffe — on a planned six-day mission.",
+      "source": "challenger transcript 107 (STS-51L mission audio)"
+    },
+    {
+      "id": "q14",
+      "mission": "challenger",
+      "category": "crew",
+      "user_input": "Who made up the STS-51L (Challenger) crew?",
+      "reference": "Commander Francis 'Dick' Scobee, pilot Michael Smith, mission specialists Judith Resnik, Ellison Onizuka, and Ronald McNair, payload specialist Gregory Jarvis, and teacher/space participant Christa McAuliffe. (The audio transcript renders some names phonetically, e.g. 'Cobi'/'Scobie', 'Resnick', 'Krista'.)",
+      "source": "challenger transcript 107 (STS-51L mission audio)"
+    },
+    {
+      "id": "q15",
+      "mission": "challenger",
+      "category": "timeline",
+      "user_input": "What was the planned launch timing for Mission 51-L on launch day?",
+      "reference": "The nominal launch window opened at 9:37 a.m. Eastern (closing at 12:37 p.m.), and an on-time launch of 51L was targeted for 9:37 a.m. Eastern. The countdown included planned holds — for example a hold running from 4:17 a.m. to 7:17 a.m. — and the flight crew was scheduled to be awakened around 5:17 a.m.",
+      "source": "challenger transcript 107 (STS-51L mission audio)"
+    },
+    {
+      "id": "q16",
+      "mission": "challenger",
+      "category": "disaster_analysis",
+      "user_input": "According to the mission-control commentary, what was observed about one minute into the STS-51L flight?",
+      "reference": "Downlink data was lost approximately one minute into the flight, shortly after the three main engines throttled up to 104%. Controllers reported 'obviously a major malfunction' with no downlink; the flight dynamics officer reported that the vehicle had exploded, and contingency procedures went into effect as recovery forces were engaged.",
+      "source": "challenger transcript 108 (STS-51L mission audio)"
+    },
+    {
+      "id": "q17",
+      "mission": "challenger",
+      "category": "technical",
+      "user_input": "In the STS-51L briefings, what does the 'go at throttle up' call actually mean, and what is the ascent throttle profile?",
+      "reference": "A post-flight briefing clarified that 'go at throttle up' — which had been misquoted — is a call made when the throttle sequence is complete, indicating to Mission Control that all vehicle systems, including the engines, look good after the event. It is not a command for the commander to throttle up. During ascent the main engines throttle down (to about 66%) through the high-aerodynamic-pressure region and are then throttled back up to 104%.",
+      "source": "challenger transcript 109 (STS-51L mission audio)"
+    }
+  ]
+}
