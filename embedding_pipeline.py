@@ -23,6 +23,7 @@ import openai
 from openai import OpenAI
 import hashlib
 import time
+import re
 from datetime import datetime
 import argparse
 from chromadb.utils.embedding_functions import OpenAIEmbeddingFunction
@@ -295,10 +296,40 @@ class ChromaEmbeddingPipelineTextOnly:
         Generate stable document ID based on file path and chunk position
         This allows for document updates without changing IDs
         """
-        # TODO: Create consistent ID format
-        # TODO: Use mission, source, and chunk_index
-        # Format: mission_source_chunk_0001
-        pass
+        mission = str(metadata.get("mission", "")).strip()
+        source_value = (
+            metadata.get("source")
+            or metadata.get("source_file")
+            or file_path.stem
+        )
+        source = Path(str(source_value)).stem.strip()
+        chunk_index = metadata.get("chunk_index")
+        if not mission:
+            raise ValueError("metadata['mission'] must not be empty")
+        if not source:
+            raise ValueError("metadata must contain a non-empty source")
+        if (
+            not isinstance(chunk_index, int)
+            or isinstance(chunk_index, bool)
+            or chunk_index < 0
+        ):
+            raise ValueError(
+                "metadata['chunk_index'] must be a non-negative integer"
+            )
+
+        def slugify(value: str) -> str:
+            slug = re.sub(
+                r"[^a-z0-9]+",
+                "_",
+                value.casefold(),
+            ).strip("_")
+            if not slug:
+                raise ValueError("ID component must contain a letter or digit")
+            return slug
+        return (
+            f"{slugify(mission)}::{slugify(source)}::"
+            f"chunk_{chunk_index:04d}"
+        )
     
     def process_text_file(self, file_path: Path) -> List[Tuple[str, Dict[str, Any]]]:
         """
