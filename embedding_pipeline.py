@@ -27,6 +27,8 @@ import time
 from datetime import datetime
 import argparse
 from chromadb.utils.embedding_functions import OpenAIEmbeddingFunction
+from llama_index.core.node_parser import TokenTextSplitter
+from llama_index.core.utils import get_tokenizer
 
 # Configure logging
 logging.basicConfig(
@@ -61,7 +63,17 @@ class ChromaEmbeddingPipelineTextOnly:
             chunk_overlap: Overlap between chunks
         """
         # TODO: Initialize OpenAI client
-        # TODO: Store configuration parameters
+        if chunk_size <= 0:
+            raise ValueError("chunk_size must be greater than 0")
+        if chunk_overlap < 0 or chunk_overlap >= chunk_size:
+            raise ValueError(
+                "chunk_overlap must satisfy 0 <= chunk_overlap < chunk_size"
+            )
+        self.chroma_persist_directory = chroma_persist_directory
+        self.collection_name = collection_name
+        self.embedding_model = embedding_model
+        self.chunk_size = chunk_size
+        self.chunk_overlap = chunk_overlap
         # TODO: Initialize ChromaDB client
         # TODO: Create or get collection
     
@@ -76,11 +88,55 @@ class ChromaEmbeddingPipelineTextOnly:
         Returns:
             List of (chunk_text, chunk_metadata) tuples
         """
-        # TODO: Handle short texts that don't need chunking
-        # TODO: Implement chunking logic with overlap
-        # TODO: Try to break at sentence boundaries
-        # TODO: Create metadata for each chunk
-        pass
+        cleaned_text = text.strip()
+        if not cleaned_text:
+            return []
+        tokenizer = get_tokenizer()
+        token_count = len(tokenizer(cleaned_text))
+        if token_count <= self.chunk_size:
+            chunk_metadata = metadata.copy()
+            chunk_metadata.update(
+                {
+                    "chunk_index": 0,
+                    "total_chunks": 1,
+                    "token_count": token_count,
+                }
+            )
+            return [(cleaned_text, chunk_metadata)]
+        source_type = metadata.get("source_type")
+        if source_type not in {"report", "transcript"}:
+            raise ValueError(
+                "metadata['source_type'] must be 'report' or 'transcript'"
+            )
+        paragraph_separator = "\n" if source_type == "transcript" else "\n\n"
+        token_splitter = TokenTextSplitter(
+            chunk_size=self.chunk_size,
+            chunk_overlap=self.chunk_overlap,
+            separator=" ",
+            backup_separators=[paragraph_separator],
+            keep_whitespaces=True,
+        )
+        chunks = token_splitter.split_text(cleaned_text)
+        chunk_records = []
+        total_chunks = len(chunks)
+        for chunk_index, chunk in enumerate(chunks):
+            chunk_token_count = len(tokenizer(chunk))
+
+            if chunk_token_count > self.chunk_size:
+                raise RuntimeError(
+                    f"Chunk {chunk_index} has {chunk_token_count} tokens, "
+                    f"exceeding chunk_size={self.chunk_size}"
+                )
+            chunk_metadata = metadata.copy()
+            chunk_metadata.update(
+                {
+                    "chunk_index": chunk_index,
+                    "total_chunks": total_chunks,
+                    "token_count": chunk_token_count,
+                }
+            )
+            chunk_records.append((chunk, chunk_metadata))
+        return chunk_records
     
     def check_document_exists(self, doc_id: str) -> bool:
         """
