@@ -138,6 +138,120 @@ class CollectionMetadataRubricTests(unittest.TestCase):
         self.assertEqual(stats["added"], 1)
 
 
+class UpdateModeRubricTests(unittest.TestCase):
+    def setUp(self):
+        self.pipeline = object.__new__(
+            ChromaEmbeddingPipelineTextOnly
+        )
+        self.pipeline.collection = MagicMock()
+        self.file_path = Path(
+            "data_text/apollo11/"
+            "NASA_NTRS_Archive_19710015566_textract_full_text.txt"
+        )
+        self.metadata = {
+            "collection": "apollo11",
+            "mission": "Apollo 11",
+            "source": "mission_report_report_00000",
+            "source_file": self.file_path.name,
+            "source_path": str(self.file_path),
+            "source_type": "report",
+            "chunk_index": 0,
+        }
+        self.documents = [
+            (
+                "Apollo 11 mission report content.",
+                self.metadata,
+            )
+        ]
+        self.document_id = self.pipeline.generate_document_id(
+            self.file_path,
+            {
+                **self.metadata,
+                "mission": "apollo11",
+            },
+        )
+
+    def test_skip_mode_leaves_existing_document_unchanged(self):
+        self.pipeline.collection.get.return_value = {
+            "ids": [self.document_id]
+        }
+
+        stats = self.pipeline.add_documents_to_collection(
+            documents=self.documents,
+            file_path=self.file_path,
+            update_mode="skip",
+        )
+
+        self.pipeline.collection.add.assert_not_called()
+        self.pipeline.collection.update.assert_not_called()
+        self.pipeline.collection.upsert.assert_not_called()
+        self.assertEqual(
+            stats,
+            {
+                "added": 0,
+                "updated": 0,
+                "skipped": 1,
+            },
+        )
+
+    def test_update_mode_updates_existing_document(self):
+        self.pipeline.collection.get.return_value = {
+            "ids": [self.document_id]
+        }
+
+        stats = self.pipeline.add_documents_to_collection(
+            documents=self.documents,
+            file_path=self.file_path,
+            update_mode="update",
+        )
+
+        self.pipeline.collection.update.assert_called_once()
+        self.pipeline.collection.add.assert_not_called()
+        self.pipeline.collection.upsert.assert_not_called()
+        self.assertEqual(
+            stats,
+            {
+                "added": 0,
+                "updated": 1,
+                "skipped": 0,
+            },
+        )
+
+    def test_replace_mode_removes_stale_file_chunks(self):
+        stale_document_id = (
+            "apollo11::mission_report_report_00000::"
+            "chunk_0001"
+        )
+        self.pipeline.collection.get.side_effect = [
+            {"ids": [self.document_id]},
+            {
+                "ids": [
+                    self.document_id,
+                    stale_document_id,
+                ]
+            },
+        ]
+
+        stats = self.pipeline.add_documents_to_collection(
+            documents=self.documents,
+            file_path=self.file_path,
+            update_mode="replace",
+        )
+
+        self.pipeline.collection.upsert.assert_called_once()
+        self.pipeline.collection.delete.assert_called_once_with(
+            ids=[stale_document_id]
+        )
+        self.assertEqual(
+            stats,
+            {
+                "added": 0,
+                "updated": 1,
+                "skipped": 0,
+            },
+        )
+
+
 class ProcessAllTextDataTests(unittest.TestCase):
     def test_aggregates_results_and_forwards_batch_size(self):
         pipeline = object.__new__(
