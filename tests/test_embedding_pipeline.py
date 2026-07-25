@@ -1,6 +1,6 @@
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from embedding_pipeline import ChromaEmbeddingPipelineTextOnly
 
@@ -81,6 +81,61 @@ class ChunkingRubricTests(unittest.TestCase):
         )
         mocked_splitter.split_text.assert_called_once_with(text)
         self.assertEqual(len(chunks), 2)
+
+
+class CollectionMetadataRubricTests(unittest.TestCase):
+    def test_stores_required_chunk_metadata(self):
+        pipeline = object.__new__(
+            ChromaEmbeddingPipelineTextOnly
+        )
+        pipeline.collection = MagicMock()
+        pipeline.collection.get.return_value = {"ids": []}
+
+        file_path = Path(
+            "data_text/apollo11/"
+            "NASA_NTRS_Archive_19710015566_textract_full_text.txt"
+        )
+        source = "mission_report_report_00000"
+
+        stats = pipeline.add_documents_to_collection(
+            documents=[
+                (
+                    "Apollo 11 mission report content.",
+                    {
+                        "collection": "apollo11",
+                        "mission": "Apollo 11",
+                        "source": source,
+                        "source_file": file_path.name,
+                        "source_path": str(file_path),
+                        "source_type": "report",
+                        "chunk_index": 0,
+                    },
+                )
+            ],
+            file_path=file_path,
+            batch_size=10,
+            update_mode="skip",
+        )
+
+        stored_metadata = (
+            pipeline.collection.add.call_args.kwargs[
+                "metadatas"
+            ][0]
+        )
+
+        self.assertEqual(
+            stored_metadata["mission"],
+            "apollo11",
+        )
+        self.assertEqual(
+            stored_metadata["source"],
+            source,
+        )
+        self.assertEqual(
+            stored_metadata["filepath"],
+            str(file_path),
+        )
+        self.assertEqual(stats["added"], 1)
 
 
 class ProcessAllTextDataTests(unittest.TestCase):
