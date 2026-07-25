@@ -252,6 +252,98 @@ class UpdateModeRubricTests(unittest.TestCase):
         )
 
 
+class PersistenceAndStatsRubricTests(unittest.TestCase):
+    @patch("embedding_pipeline.chromadb.PersistentClient")
+    @patch("embedding_pipeline.OpenAIEmbeddingFunction")
+    @patch("embedding_pipeline.OpenAI")
+    def test_uses_configured_chroma_path_and_collection_name(
+        self,
+        mocked_openai,
+        mocked_embedding_function_class,
+        mocked_persistent_client_class,
+    ):
+        mocked_client = mocked_persistent_client_class.return_value
+        mocked_collection = MagicMock()
+        mocked_client.get_or_create_collection.return_value = (
+            mocked_collection
+        )
+
+        pipeline = ChromaEmbeddingPipelineTextOnly(
+            openai_api_key="test-key",
+            openai_base_url="https://example.test/v1",
+            chroma_persist_directory="rubric_chroma",
+            collection_name="rubric_collection",
+            embedding_model="test-embedding-model",
+        )
+
+        mocked_persistent_client_class.assert_called_once_with(
+            path="rubric_chroma"
+        )
+        mocked_client.get_or_create_collection.assert_called_once_with(
+            name="rubric_collection",
+            embedding_function=(
+                mocked_embedding_function_class.return_value
+            ),
+            metadata={"hnsw:space": "cosine"},
+        )
+        self.assertIs(
+            pipeline.collection,
+            mocked_collection,
+        )
+        mocked_openai.assert_called_once_with(
+            api_key="test-key",
+            base_url="https://example.test/v1",
+        )
+
+    def test_collection_stats_include_size_and_aggregates(self):
+        pipeline = object.__new__(
+            ChromaEmbeddingPipelineTextOnly
+        )
+        pipeline.collection = MagicMock()
+        pipeline.collection.name = "nasa_space_missions_text"
+        pipeline.collection.count.return_value = 3
+        pipeline.collection.get.return_value = {
+            "metadatas": [
+                {
+                    "mission": "apollo11",
+                    "filepath": "data_text/apollo11/report.txt",
+                    "source_type": "report",
+                },
+                {
+                    "mission": "apollo11",
+                    "filepath": "data_text/apollo11/report.txt",
+                    "source_type": "report",
+                },
+                {
+                    "mission": "challenger",
+                    "filepath": (
+                        "data_text/challenger/transcript.txt"
+                    ),
+                    "source_type": "transcript",
+                },
+            ]
+        }
+
+        stats = pipeline.get_collection_stats()
+
+        self.assertEqual(stats["total_documents"], 3)
+        self.assertEqual(stats["source_files"], 2)
+        self.assertEqual(
+            stats["missions"],
+            {
+                "apollo11": 2,
+                "challenger": 1,
+            },
+        )
+        self.assertEqual(
+            stats["data_types"],
+            {
+                "report": 2,
+                "transcript": 1,
+            },
+        )
+
+
 class ProcessAllTextDataTests(unittest.TestCase):
     def test_aggregates_results_and_forwards_batch_size(self):
         pipeline = object.__new__(
