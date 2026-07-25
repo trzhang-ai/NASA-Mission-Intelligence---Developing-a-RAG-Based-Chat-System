@@ -1,0 +1,43 @@
+[project]
+name = "project-nasa-mission-intelligence-starter"
+version = "0.1.0"
+description = "NASA mission intelligence RAG learning project"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+
+dependencies = [
+    # Vector database
+    "chromadb>=1.5,<2",
+    # Evaluation datasets
+    "datasets>=4,<6",
+    # Compatibility pins required by Ragas 0.4.3
+    "langchain==0.3.27",
+    "langchain-community==0.3.27",
+    "langchain-core==0.3.80",
+    "langchain-openai==0.3.35",
+    # RAG framework and text chunking
+    "llama-index>=0.14,<0.15",
+    # Data analysis and visualization
+    "matplotlib>=3.7,<4",
+    "pandas>=2.2,<4",
+    # OpenAI SDK
+    "openai>=2,<3",
+    # Environment-variable loading
+    "python-dotenv>=1,<2",
+    # RAG evaluation
+    "ragas==0.4.3",
+    # Progress bars used in your ingestion code
+    "tqdm>=4.66,<5",
+    # Document parsing
+    "unstructured>=0.24,<0.25",
+    "streamlit==1.59.2",
+]
+
+[dependency-groups]
+dev = [
+    "ipykernel>=6,<7",
+    "jupyter>=1.1,<2",
+]
+
+[tool.uv]
+package = false

@@ -4,5 +4,13 @@ env/
 __pycache__/
 *.pyc
 .ipynb_checkpoints/
-DS_Store/
+.DS_Store
 .env
+.tools/
+.vscode/
+/chroma_db/
+/checkpoint_df.pkl
+/ragas_checkpoint.pkl
+/submission/
+/submission.zip
+/corpus_df.csv
