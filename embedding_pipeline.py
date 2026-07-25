@@ -739,8 +739,11 @@ class ChromaEmbeddingPipelineTextOnly:
     
     def get_collection_info(self) -> Dict[str, Any]:
         """Get information about the ChromaDB collection"""
-        # TODO: Return collection name, document count, metadata
-        pass
+        return {
+            "collection_name": self.collection.name,
+            "document_count": self.collection.count(),
+            "metadata": self.collection.metadata or {},
+        }
     
     def query_collection(self, query_text: str, n_results: int = 5) -> Dict[str, Any]:
         """
@@ -753,45 +756,94 @@ class ChromaEmbeddingPipelineTextOnly:
         Returns:
             Query results
         """
-        # TODO: Perform test query and return results
-        pass
+        if (
+            not isinstance(query_text, str)
+            or not query_text.strip()
+        ):
+            raise ValueError("query_text must not be empty")
+        if (
+            not isinstance(n_results, int)
+            or isinstance(n_results, bool)
+            or n_results <= 0
+        ):
+            raise ValueError(
+                "n_results must be a positive integer"
+            )
+        try:
+            return self.collection.query(
+                query_texts=[query_text.strip()],
+                n_results=n_results,
+                include=[
+                    "documents",
+                    "metadatas",
+                    "distances",
+                ],
+            )
+        except Exception:
+            logger.exception(
+                "Failed to query the collection"
+            )
+            raise
     
     def get_collection_stats(self) -> Dict[str, Any]:
         """Get detailed statistics about the collection"""
         try:
-            # Get all documents to analyze
-            all_docs = self.collection.get()
-            
-            if not all_docs['metadatas']:
-                return {'error': 'No documents in collection'}
-            
+            all_docs = self.collection.get(
+                include=["metadatas"]
+            )
+            metadatas = all_docs.get("metadatas") or []
             stats = {
-                'total_documents': len(all_docs['metadatas']),
-                'missions': {},
-                'data_types': {},
-                'document_categories': {},
-                'file_types': {}
+                "collection_name": self.collection.name,
+                "total_documents": self.collection.count(),
+                "source_files": 0,
+                "missions": {},
+                "data_types": {},
+                "document_categories": {},
+                "file_types": {},
             }
-            
+            if not metadatas:
+                return stats
             # Analyze metadata
-            for metadata in all_docs['metadatas']:
-                mission = metadata.get('mission', 'unknown')
-                data_type = metadata.get('data_type', 'unknown')
-                doc_category = metadata.get('document_category', 'unknown')
-                file_type = metadata.get('file_type', 'unknown')
-                
+            source_files = set()
+            for metadata in metadatas:
+                metadata = metadata or {}
+                filepath = (
+                    metadata.get("filepath")
+                    or metadata.get("file_path")
+                    or metadata.get("source_path")
+                    or metadata.get("source")
+                )
+                if filepath:
+                    source_files.add(str(filepath))
+                mission = (
+                    metadata.get("mission")
+                    or "unknown"
+                )
+                data_type = (
+                    metadata.get("data_type")
+                    or metadata.get("source_type")
+                    or metadata.get("filetype")
+                    or "unknown"
+                )
+                doc_category = (
+                    metadata.get("document_category")
+                    or "unknown"
+                )
+                file_type = (
+                    metadata.get("filetype")
+                    or metadata.get("file_type")
+                    or metadata.get("source_type")
+                    or "unknown"
+                )
                 # Count by mission
                 stats['missions'][mission] = stats['missions'].get(mission, 0) + 1
-                
                 # Count by data type
                 stats['data_types'][data_type] = stats['data_types'].get(data_type, 0) + 1
-                
                 # Count by document category
                 stats['document_categories'][doc_category] = stats['document_categories'].get(doc_category, 0) + 1
-                
                 # Count by file type
                 stats['file_types'][file_type] = stats['file_types'].get(file_type, 0) + 1
-            
+            stats["source_files"] = len(source_files)
             return stats
             
         except Exception as e:
