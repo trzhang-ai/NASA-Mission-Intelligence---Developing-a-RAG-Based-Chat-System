@@ -19,7 +19,6 @@ import logging
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple
 import chromadb
-from chromadb.config import Settings
 import openai
 from openai import OpenAI
 import hashlib
@@ -44,38 +43,59 @@ logger = logging.getLogger(__name__)
 class ChromaEmbeddingPipelineTextOnly:
     """Pipeline for creating ChromaDB collections with OpenAI embeddings - Text files only"""
     
-    def __init__(self, 
-                 openai_api_key: str,
-                 chroma_persist_directory: str = "./chroma_db",
-                 collection_name: str = "nasa_space_missions_text",
-                 embedding_model: str = "text-embedding-3-small",
-                 chunk_size: int = 1000,
-                 chunk_overlap: int = 200):
+    def __init__(
+        self,
+        openai_api_key: str,
+        openai_base_url: Optional[str] = None,
+        chroma_persist_directory: str = "./chroma_db",
+        collection_name: str = "nasa_space_missions_text",
+        embedding_model: str = "text-embedding-3-small",
+        chunk_size: int = 1000,
+        chunk_overlap: int = 200,
+    ):
         """
         Initialize the embedding pipeline
         
         Args:
             openai_api_key: OpenAI API key
+            openai_base_url: Optional base URL for an OpenAI-compatible API
             chroma_persist_directory: Directory to persist ChromaDB
             collection_name: Name of the ChromaDB collection
             embedding_model: OpenAI embedding model to use
             chunk_size: Maximum size of text chunks
             chunk_overlap: Overlap between chunks
         """
-        # TODO: Initialize OpenAI client
+        if not openai_api_key or not openai_api_key.strip():
+            raise ValueError("openai_api_key must not be empty")
+        self.openai_client = OpenAI(
+            api_key=openai_api_key,
+            base_url=openai_base_url,
+        )
+        self.embedding_function = OpenAIEmbeddingFunction(
+            api_key=openai_api_key,
+            api_base=openai_base_url,
+            model_name=embedding_model,
+        )
         if chunk_size <= 0:
             raise ValueError("chunk_size must be greater than 0")
         if chunk_overlap < 0 or chunk_overlap >= chunk_size:
             raise ValueError(
                 "chunk_overlap must satisfy 0 <= chunk_overlap < chunk_size"
             )
+        self.openai_base_url = openai_base_url
         self.chroma_persist_directory = chroma_persist_directory
         self.collection_name = collection_name
         self.embedding_model = embedding_model
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
-        # TODO: Initialize ChromaDB client
-        # TODO: Create or get collection
+        self.chroma_client = chromadb.PersistentClient(
+            path=self.chroma_persist_directory,
+        )
+        self.collection = self.chroma_client.get_or_create_collection(
+            name=self.collection_name,
+            embedding_function=self.embedding_function,
+            metadata={"hnsw:space": "cosine"},
+        )
     
     def chunk_text(self, text: str, metadata: Dict[str, Any]) -> List[Tuple[str, Dict[str, Any]]]:
         """
@@ -253,10 +273,22 @@ class ChromaEmbeddingPipelineTextOnly:
         Returns:
             Embedding vector
         """
-        # TODO: Call OpenAI embeddings API
-        # TODO: Return embedding vector
-        # TODO: Add error handling
-        pass
+        if not text or not text.strip():
+            raise ValueError("text must not be empty")
+        try:
+            response = self.openai_client.embeddings.create(
+                model=self.embedding_model,
+                input=text,
+            )
+        except Exception:
+            logger.exception(
+                "Failed to create embedding with model %s",
+                self.embedding_model,
+            )
+            raise
+        if not response.data:
+            raise RuntimeError("The embedding API returned no embedding data")
+        return response.data[0].embedding
 
     def generate_document_id(self, file_path: Path, metadata: Dict[str, Any]) -> str:
         """
