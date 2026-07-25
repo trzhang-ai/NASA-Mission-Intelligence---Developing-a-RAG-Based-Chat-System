@@ -966,6 +966,14 @@ def main():
             "from the environment or .env"
         ),
     )
+    parser.add_argument(
+        "--openai-base-url",
+        default=os.getenv("OPENAI_BASE_URL"),
+        help=(
+            "Optional OpenAI-compatible endpoint; defaults to "
+            "OPENAI_BASE_URL from the environment or .env"
+        ),
+    )
     parser.add_argument('--chroma-dir', default='./chroma_db_openai', help='ChromaDB persist directory')
     parser.add_argument('--collection-name', default='nasa_space_missions_text', help='Collection name')
     parser.add_argument('--embedding-model', default='text-embedding-3-small', help='OpenAI embedding model')
@@ -987,11 +995,12 @@ def main():
     logger.info("Initializing ChromaDB Embedding Pipeline...")
     pipeline = ChromaEmbeddingPipelineTextOnly(
         openai_api_key=args.openai_key,
+        openai_base_url=args.openai_base_url,
         chroma_persist_directory=args.chroma_dir,
         collection_name=args.collection_name,
         embedding_model=args.embedding_model,
         chunk_size=args.chunk_size,
-        chunk_overlap=args.chunk_overlap
+        chunk_overlap=args.chunk_overlap,
     )
     # Handle delete source operation
     if args.delete_source:
