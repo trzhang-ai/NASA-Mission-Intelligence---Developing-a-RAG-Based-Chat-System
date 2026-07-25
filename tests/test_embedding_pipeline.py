@@ -5,6 +5,84 @@ from unittest.mock import patch
 from embedding_pipeline import ChromaEmbeddingPipelineTextOnly
 
 
+class ChunkingRubricTests(unittest.TestCase):
+    def test_runtime_chunk_settings_and_size_limit(self):
+        text = " ".join(
+            f"Sentence {i} describes a NASA mission event "
+            "with useful technical context."
+            for i in range(1, 25)
+        )
+
+        for chunk_size, chunk_overlap in (
+            (64, 8),
+            (128, 16),
+        ):
+            with self.subTest(
+                chunk_size=chunk_size,
+                chunk_overlap=chunk_overlap,
+            ):
+                pipeline = object.__new__(
+                    ChromaEmbeddingPipelineTextOnly
+                )
+                pipeline.chunk_size = chunk_size
+                pipeline.chunk_overlap = chunk_overlap
+
+                chunks = pipeline.chunk_text(
+                    text,
+                    {
+                        "source_type": "report",
+                        "mission": "apollo11",
+                    },
+                )
+
+                self.assertGreater(len(chunks), 1)
+
+                for _, metadata in chunks:
+                    self.assertLessEqual(
+                        metadata["token_count"],
+                        chunk_size,
+                    )
+
+    @patch("embedding_pipeline.TokenTextSplitter")
+    def test_forwards_configured_overlap_to_splitter(
+        self,
+        mocked_splitter_class,
+    ):
+        pipeline = object.__new__(
+            ChromaEmbeddingPipelineTextOnly
+        )
+        pipeline.chunk_size = 32
+        pipeline.chunk_overlap = 7
+
+        text = " ".join(
+            f"mission-event-{i}"
+            for i in range(100)
+        )
+        mocked_splitter = mocked_splitter_class.return_value
+        mocked_splitter.split_text.return_value = [
+            "first overlapping chunk",
+            "second overlapping chunk",
+        ]
+
+        chunks = pipeline.chunk_text(
+            text,
+            {
+                "source_type": "report",
+                "mission": "apollo11",
+            },
+        )
+
+        mocked_splitter_class.assert_called_once_with(
+            chunk_size=32,
+            chunk_overlap=7,
+            separator=" ",
+            backup_separators=["\n\n"],
+            keep_whitespaces=True,
+        )
+        mocked_splitter.split_text.assert_called_once_with(text)
+        self.assertEqual(len(chunks), 2)
+
+
 class ProcessAllTextDataTests(unittest.TestCase):
     def test_aggregates_results_and_forwards_batch_size(self):
         pipeline = object.__new__(
