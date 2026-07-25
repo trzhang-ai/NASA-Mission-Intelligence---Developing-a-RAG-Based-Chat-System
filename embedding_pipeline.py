@@ -169,9 +169,20 @@ class ChromaEmbeddingPipelineTextOnly:
         Returns:
             True if document exists, False otherwise
         """
-        # TODO: Query collection for document ID
-        # TODO: Return True if exists, False otherwise
-        pass
+        if not doc_id or not doc_id.strip():
+            raise ValueError("doc_id must not be empty")
+        try:
+            result = self.collection.get(
+                ids=[doc_id],
+                include=[],
+            )
+        except Exception:
+            logger.exception(
+                "Failed to check whether document %s exists",
+                doc_id,
+            )
+            raise
+        return bool(result["ids"])
     
     def update_document(self, doc_id: str, text: str, metadata: Dict[str, Any]) -> bool:
         """
@@ -497,21 +508,202 @@ class ChromaEmbeddingPipelineTextOnly:
         Returns:
             Dictionary with counts of added, updated, and skipped documents
         """
+        valid_update_modes = {"skip", "update", "replace"}
+        if update_mode not in valid_update_modes:
+            raise ValueError(
+                "update_mode must be 'skip', 'update', or 'replace'"
+            )
+        if (
+            not isinstance(batch_size, int)
+            or isinstance(batch_size, bool)
+            or batch_size <= 0
+        ):
+            raise ValueError("batch_size must be a positive integer")
         if not documents:
             return {'added': 0, 'updated': 0, 'skipped': 0}
-        
         stats = {'added': 0, 'updated': 0, 'skipped': 0}
-        
-        # TODO: Handle different update modes (skip, update, replace)
-        # TODO: Process documents in batches
-        # TODO: For each document:
-        #   - Generate document ID
-        #   - Check if exists
-        #   - Get embedding
-        #   - Add or update in collection
-        # TODO: Return statistics
+        prepared_documents = []
+        for position, item in enumerate(documents):
+            if not isinstance(item, tuple) or len(item) != 2:
+                raise ValueError(
+                    f"Document at position {position} must be a "
+                    "(text, metadata) tuple"
+                )
+            text, metadata = item
+            if not isinstance(text, str) or not text.strip():
+                raise ValueError(
+                    f"Document text at position {position} must not be empty"
+                )
+            if not isinstance(metadata, dict):
+                raise ValueError(
+                    f"Metadata at position {position} must be a dictionary"
+                )
+            prepared_metadata = metadata.copy()
+            mission_value = (
+                prepared_metadata.get("collection")
+                or prepared_metadata.get("mission")
+            )
+            mission = re.sub(
+                r"[^a-z0-9]+",
+                "",
+                str(mission_value or "").casefold(),
+            )
+            valid_missions = {"apollo11", "apollo13", "challenger"}
+            if mission not in valid_missions:
+                raise ValueError(
+                    f"Metadata at position {position} has an unsupported "
+                    f"mission: {mission_value!r}"
+                )
+            prepared_metadata["mission"] = mission
+            source = (
+                prepared_metadata.get("source")
+                or prepared_metadata.get("source_file")
+                or file_path.name
+            )
+            filepath = (
+                prepared_metadata.get("filepath")
+                or prepared_metadata.get("file_path")
+                or prepared_metadata.get("source_path")
+                or str(file_path)
+            )
+            prepared_metadata["source"] = str(source).strip()
+            prepared_metadata["filepath"] = str(filepath).strip()
+            if not prepared_metadata["source"]:
+                raise ValueError(
+                    f"Metadata at position {position} has an empty source"
+                )
+            if not prepared_metadata["filepath"]:
+                raise ValueError(
+                    f"Metadata at position {position} has an empty filepath"
+                )
+            document_id = self.generate_document_id(
+                file_path,
+                prepared_metadata,
+            )
+            prepared_documents.append(
+                (document_id, text, prepared_metadata)
+            )
+        document_ids = [
+            document_id
+            for document_id, _, _ in prepared_documents
+        ]
+        if len(document_ids) != len(set(document_ids)):
+            raise ValueError(
+                "Generated document IDs must be unique within one file"
+            )
+        try:
+            existing_result = self.collection.get(
+                ids=document_ids,
+                include=[],
+            )
+        except Exception:
+            logger.exception(
+                "Failed to inspect existing document IDs"
+            )
+            raise
+        existing_ids = set(existing_result["ids"])
+        existing_documents = [
+            record
+            for record in prepared_documents
+            if record[0] in existing_ids
+        ]
+        new_documents = [
+            record
+            for record in prepared_documents
+            if record[0] not in existing_ids
+        ]
 
-        return stats
+        def write_batches(records, write_method):
+            for start in range(0, len(records), batch_size):
+                batch = records[start:start + batch_size]
+                write_method(
+                    ids=[
+                        document_id
+                        for document_id, _, _ in batch
+                    ],
+                    documents=[
+                        text
+                        for _, text, _ in batch
+                    ],
+                    metadatas=[
+                        metadata
+                        for _, _, metadata in batch
+                    ],
+                )
+
+        if update_mode == "skip":
+            write_batches(
+                new_documents,
+                self.collection.add,
+            )
+            stats["added"] = len(new_documents)
+            stats["skipped"] = len(existing_documents)
+            return stats
+        if update_mode == "update":
+            write_batches(
+                existing_documents,
+                self.collection.update,
+            )
+            write_batches(
+                new_documents,
+                self.collection.add,
+            )
+            stats["updated"] = len(existing_documents)
+            stats["added"] = len(new_documents)
+            return stats
+        if update_mode == "replace":
+            file_scopes = {
+                (
+                    metadata["mission"],
+                    metadata["filepath"],
+                )
+                for _, _, metadata in prepared_documents
+            }
+            if len(file_scopes) != 1:
+                raise ValueError(
+                    "replace mode requires documents from exactly one file"
+                )
+            mission, filepath = next(iter(file_scopes))
+            file_filter = {
+                "$and": [
+                    {"mission": {"$eq": mission}},
+                    {"filepath": {"$eq": filepath}},
+                ]
+            }
+            try:
+                existing_file_result = self.collection.get(
+                    where=file_filter,
+                    include=[],
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to inspect existing documents for %s",
+                    filepath,
+                )
+                raise
+            existing_file_ids = set(
+                existing_file_result["ids"]
+            )
+            write_batches(
+                prepared_documents,
+                self.collection.upsert,
+            )
+            incoming_ids = set(document_ids)
+            stale_document_ids = sorted(
+                existing_file_ids - incoming_ids
+            )
+            for start in range(
+                0,
+                len(stale_document_ids),
+                batch_size,
+            ):
+                batch_ids = stale_document_ids[
+                    start:start + batch_size
+                ]
+                self.collection.delete(ids=batch_ids)
+            stats["updated"] = len(existing_documents)
+            stats["added"] = len(new_documents)
+            return stats
     
     def process_all_text_data(self, base_path: str, update_mode: str = 'skip') -> Dict[str, int]:
         """
