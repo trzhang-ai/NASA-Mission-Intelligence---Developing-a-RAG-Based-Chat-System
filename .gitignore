@@ -10,6 +10,7 @@ __pycache__/
 .tools/
 .vscode/
 /chroma_db/
+/chroma_db_openai/
 /checkpoint_df.pkl
 /ragas_checkpoint.pkl
 /submission/

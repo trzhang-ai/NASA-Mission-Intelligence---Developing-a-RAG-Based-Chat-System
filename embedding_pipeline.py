@@ -13,6 +13,7 @@ Supported data sources:
 - Challenger transcribed audio data (text files only)
 """
 
+from dotenv import load_dotenv
 from nasa_text_cleaners import build_all_nasa_dataframes
 import os
 import json
@@ -944,8 +945,11 @@ class ChromaEmbeddingPipelineTextOnly:
             return {'error': str(e)}
 
 def main():
-    """Main function"""
-    parser = argparse.ArgumentParser(description='ChromaDB Embedding Pipeline for NASA Data')
+    env_path = Path(__file__).resolve().parent / ".env"
+    load_dotenv(dotenv_path=env_path)
+    parser = argparse.ArgumentParser(
+        description='ChromaDB Embedding Pipeline for NASA Data'
+    )
     parser.add_argument(
         "--data-path",
         default="data_text",
@@ -954,7 +958,14 @@ def main():
             "and Challenger data folders"
         ),
     )
-    parser.add_argument('--openai-key', required=True, help='OpenAI API key')
+    parser.add_argument(
+        "--openai-key",
+        default=os.getenv("OPENAI_API_KEY"),
+        help=(
+            "OpenAI API key; defaults to OPENAI_API_KEY "
+            "from the environment or .env"
+        ),
+    )
     parser.add_argument('--chroma-dir', default='./chroma_db_openai', help='ChromaDB persist directory')
     parser.add_argument('--collection-name', default='nasa_space_missions_text', help='Collection name')
     parser.add_argument('--embedding-model', default='text-embedding-3-small', help='OpenAI embedding model')
@@ -967,6 +978,11 @@ def main():
     parser.add_argument('--stats-only', action='store_true', help='Only show collection statistics')
     parser.add_argument('--delete-source', help='Delete all documents from a specific source pattern')
     args = parser.parse_args()
+    if not args.openai_key:
+        parser.error(
+            "OpenAI API key not found. Set OPENAI_API_KEY "
+            "in .env or pass --openai-key."
+        )
     # Initialize pipeline
     logger.info("Initializing ChromaDB Embedding Pipeline...")
     pipeline = ChromaEmbeddingPipelineTextOnly(
