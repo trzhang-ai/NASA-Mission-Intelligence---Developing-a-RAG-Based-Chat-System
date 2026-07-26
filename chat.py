@@ -10,13 +10,16 @@ import streamlit as st
 import os
 import json
 import pandas as pd
-
 import ragas_evaluator
 import rag_client
 import llm_client
-
 from pathlib import Path
 from typing import Dict, List, Optional
+from dotenv import load_dotenv
+
+load_dotenv(
+    dotenv_path=Path(__file__).resolve().parent / ".env"
+)
 
 # RAGAS imports
 try:
@@ -61,13 +64,22 @@ def format_context(documents: List[str], metadatas: List[Dict]) -> str:
     
     return rag_client.format_context(documents, metadatas)
 
-def generate_response(openai_key, user_message: str, context: str, 
-                     conversation_history: List[Dict], model: str = "gpt-3.5-turbo") -> str:
-    """Generate response using OpenAI with context"""
-    try:
-        return llm_client.generate_response(openai_key, user_message, context, conversation_history, model)
-    except Exception as e:
-        return f"Error generating response: {e}"
+def generate_response(
+    openai_key: str,
+    user_message: str,
+    context: str,
+    conversation_history: List[Dict],
+    model: str,
+) -> str:
+    """Generate a grounded response using the configured LLM."""
+    return llm_client.generate_response(
+        openai_key=openai_key,
+        user_message=user_message,
+        context=context,
+        conversation_history=conversation_history,
+        model=model,
+        openai_base_url=os.getenv("OPENAI_BASE_URL"),
+    )
 
 def evaluate_response_quality(question: str, answer: str, contexts: List[str]) -> Dict[str, float]:
     """Evaluate response quality using RAGAS metrics"""
@@ -159,10 +171,12 @@ def main():
             os.environ["CHROMA_OPENAI_API_KEY"] = openai_key
         
         # Model selection
-        model_choice = st.selectbox(
+        default_model = os.getenv("OPENAI_CHAT_MODEL", "gpt-5-nano")
+
+        model_choice = st.text_input(
             "OpenAI Model",
-            options=["gpt-3.5-turbo", "gpt-4", "gpt-4-turbo-preview"],
-            help="Choose the OpenAI model for responses"
+            value=default_model,
+            help="Enter a chat model supported by your configured API endpoint",
         )
         
         # Retrieval settings
@@ -226,13 +240,18 @@ def main():
                     st.session_state.last_contexts = contexts_list
                 
                 # Generate response
-                response = generate_response(
-                    openai_key, 
-                    prompt, 
-                    context, 
-                    st.session_state.messages[:-1],
-                    model_choice
-                )
+                try:
+                    response = generate_response(
+                        openai_key,
+                        prompt,
+                        context,
+                        st.session_state.messages[:-1],
+                        model_choice,
+                    )
+                except Exception as error:
+                    st.error(f"Error generating response: {error}")
+                    st.session_state.messages.pop()
+                    st.stop()
                 st.markdown(response)
                 
                 # Evaluate response quality if enabled
