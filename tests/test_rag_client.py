@@ -1,11 +1,154 @@
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from rag_client import (
+    discover_chroma_backends,
     format_context,
     initialize_rag_system,
     retrieve_documents,
 )
+
+
+class DiscoverChromaBackendsTests(unittest.TestCase):
+    @patch("rag_client.chromadb.PersistentClient")
+    def test_discovers_collections_and_ignores_non_databases(
+        self,
+        mocked_persistent_client_class,
+    ):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            project_root = Path(temporary_directory)
+            chroma_directory = project_root / "chroma_db"
+            empty_directory = project_root / "chroma_empty"
+            uninitialized_directory = (
+                project_root / "chroma_uninitialized"
+            )
+            chroma_directory.mkdir()
+            empty_directory.mkdir()
+            uninitialized_directory.mkdir()
+            (chroma_directory / "chroma.sqlite3").touch()
+            (empty_directory / "chroma.sqlite3").touch()
+            (project_root / "chroma_notes.txt").touch()
+
+            collection = MagicMock()
+            collection.name = "nasa_collection"
+            collection.count.return_value = 2766
+
+            populated_client = MagicMock()
+            populated_client.list_collections.return_value = [
+                collection
+            ]
+            empty_client = MagicMock()
+            empty_client.list_collections.return_value = []
+
+            clients_by_path = {
+                str(chroma_directory): populated_client,
+                str(empty_directory): empty_client,
+            }
+            mocked_persistent_client_class.side_effect = (
+                lambda path: clients_by_path[path]
+            )
+
+            with patch("rag_client.Path") as mocked_path_class:
+                mocked_path_class.return_value.resolve.return_value.parent = (
+                    project_root
+                )
+                result = discover_chroma_backends()
+
+        self.assertEqual(
+            result,
+            {
+                "chroma_db:nasa_collection": {
+                    "directory": str(chroma_directory),
+                    "collection_name": "nasa_collection",
+                    "display_name": (
+                        "nasa_collection "
+                        "(chroma_db, 2766 chunks)"
+                    ),
+                }
+            },
+        )
+        self.assertEqual(
+            {
+                call.kwargs["path"]
+                for call in mocked_persistent_client_class.call_args_list
+            },
+            {
+                str(chroma_directory),
+                str(empty_directory),
+            },
+        )
+
+    @patch("rag_client.chromadb.PersistentClient")
+    def test_skips_unreadable_directory_and_collection(
+        self,
+        mocked_persistent_client_class,
+    ):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            project_root = Path(temporary_directory)
+            broken_directory = project_root / "chroma_broken"
+            mixed_directory = project_root / "chroma_mixed"
+            broken_directory.mkdir()
+            mixed_directory.mkdir()
+            (broken_directory / "chroma.sqlite3").touch()
+            (mixed_directory / "chroma.sqlite3").touch()
+
+            valid_collection = MagicMock()
+            valid_collection.name = "valid_collection"
+            valid_collection.count.return_value = 12
+            broken_collection = MagicMock()
+            broken_collection.name = "broken_collection"
+            broken_collection.count.side_effect = RuntimeError(
+                "damaged collection"
+            )
+
+            mixed_client = MagicMock()
+            mixed_client.list_collections.return_value = [
+                broken_collection,
+                valid_collection,
+            ]
+
+            def open_client(path):
+                if path == str(broken_directory):
+                    raise RuntimeError("not a Chroma database")
+                return mixed_client
+
+            mocked_persistent_client_class.side_effect = open_client
+
+            with patch("rag_client.Path") as mocked_path_class:
+                mocked_path_class.return_value.resolve.return_value.parent = (
+                    project_root
+                )
+                result = discover_chroma_backends()
+
+        self.assertEqual(
+            list(result),
+            ["chroma_mixed:valid_collection"],
+        )
+        self.assertEqual(
+            result["chroma_mixed:valid_collection"][
+                "collection_name"
+            ],
+            "valid_collection",
+        )
+
+    @patch("rag_client.chromadb.PersistentClient")
+    def test_returns_empty_mapping_when_no_chroma_paths_exist(
+        self,
+        mocked_persistent_client_class,
+    ):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            project_root = Path(temporary_directory)
+
+            with patch("rag_client.Path") as mocked_path_class:
+                mocked_path_class.return_value.resolve.return_value.parent = (
+                    project_root
+                )
+                result = discover_chroma_backends()
+
+        self.assertEqual(result, {})
+        mocked_persistent_client_class.assert_not_called()
 
 
 class InitializeRagSystemTests(unittest.TestCase):

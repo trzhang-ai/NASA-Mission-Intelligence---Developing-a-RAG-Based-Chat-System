@@ -7,11 +7,42 @@ from typing import Dict, List, Optional
 from pathlib import Path
 
 def discover_chroma_backends() -> Dict[str, Dict[str, str]]:
-    """Discover available ChromaDB backends."""
+    """Discover existing Chroma collections in the project."""
+    project_root = Path(__file__).resolve().parent
     backends = {}
+    for directory in sorted(
+        project_root.glob("chroma*")
+    ):
+        if not directory.is_dir():
+            continue
+        if not (directory / "chroma.sqlite3").is_file():
+            continue
+        try:
+            client = chromadb.PersistentClient(
+                path=str(directory)
+            )
+            collections = client.list_collections()
+        except Exception:
+            continue
+        for collection in collections:
+            try:
+                collection_name = collection.name
+                collection_size = collection.count()
+            except Exception:
+                continue
 
-    # TODO: Implement backend discovery later.
-
+            backend_key = (
+                f"{directory.name}:{collection_name}"
+            )
+            backends[backend_key] = {
+                "directory": str(directory),
+                "collection_name": collection_name,
+                "display_name": (
+                    f"{collection_name} "
+                    f"({directory.name}, "
+                    f"{collection_size} chunks)"
+                ),
+            }
     return backends
 
 def initialize_rag_system(
