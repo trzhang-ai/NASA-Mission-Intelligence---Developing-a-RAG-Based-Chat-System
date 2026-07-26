@@ -182,7 +182,15 @@ def main():
         # Retrieval settings
         st.subheader("🔍 Retrieval Settings")
         n_docs = st.slider("Documents to retrieve", 1, 10, 3)
-        
+        mission_choice = st.selectbox(
+            "Mission filter",
+            options=[
+                "All missions",
+                "Apollo 11",
+                "Apollo 13",
+                "Challenger",
+            ],
+        )
         # Evaluation settings
         st.subheader("📊 Evaluation Settings")
         enable_evaluation = st.checkbox("Enable RAGAS Evaluation", value=RAGAS_AVAILABLE)
@@ -226,9 +234,10 @@ def main():
             with st.spinner("Searching documents and generating response..."):
                 # Retrieve relevant documents
                 docs_result = retrieve_documents(
-                    collection, 
-                    prompt, 
-                    n_docs
+                    collection=collection,
+                    query=prompt,
+                    n_results=n_docs,
+                    mission_filter=mission_choice,
                 )
                 
                 # Format context

@@ -1,7 +1,37 @@
 import unittest
 from unittest.mock import patch
 
-from chat import generate_response
+from chat import generate_response, retrieve_documents
+
+
+class RetrieveDocumentsWrapperTests(unittest.TestCase):
+    @patch("chat.rag_client.retrieve_documents")
+    def test_forwards_runtime_top_k_and_mission_filter(
+        self,
+        mocked_retrieve_documents,
+    ):
+        collection = object()
+        expected_result = {
+            "documents": [["Apollo 13 evidence."]],
+            "metadatas": [[{"mission": "apollo13"}]],
+            "distances": [[0.1]],
+        }
+        mocked_retrieve_documents.return_value = expected_result
+
+        result = retrieve_documents(
+            collection=collection,
+            query="What happened during Apollo 13?",
+            n_results=7,
+            mission_filter="Apollo 13",
+        )
+
+        self.assertIs(result, expected_result)
+        mocked_retrieve_documents.assert_called_once_with(
+            collection,
+            "What happened during Apollo 13?",
+            7,
+            "Apollo 13",
+        )
 
 
 class GenerateResponseWrapperTests(unittest.TestCase):

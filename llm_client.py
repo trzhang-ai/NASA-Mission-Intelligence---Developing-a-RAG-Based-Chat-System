@@ -1,4 +1,3 @@
-from openai.types.beta.chatkit import chatkit_thread_user_message_item
 import os
 from typing import Dict, List, Optional
 from openai import OpenAI
@@ -20,7 +19,7 @@ def generate_response(
     user_message: str,
     context: str,
     conversation_history: List[Dict],
-    model: str = "gpt-3.5-turbo",
+    model: str,
     openai_base_url: Optional[str] = None,
     max_history_messages: int = 6,
 ) -> str:
