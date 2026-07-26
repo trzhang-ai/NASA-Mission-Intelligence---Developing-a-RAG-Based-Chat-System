@@ -50,16 +50,13 @@ def retrieve_documents(collection, query: str, n_results: int = 3,
     """Retrieve relevant documents from ChromaDB with optional filtering"""
     if not isinstance(query, str) or not query.strip():
         raise ValueError("query must not be empty")
-
     if (
         not isinstance(n_results, int)
         or isinstance(n_results, bool)
         or n_results <= 0
     ):
         raise ValueError("n_results must be a positive integer")
-
     where_filter = None
-
     if (
         mission_filter
         and mission_filter.strip().casefold()
@@ -81,13 +78,11 @@ def retrieve_documents(collection, query: str, n_results: int = 3,
             raise ValueError(
                 f"Unsupported mission filter: {mission_filter!r}"
             )
-
         where_filter = {
             "mission": {
                 "$eq": mission_aliases[mission_key]
             }
         }
-
     return collection.query(
         query_texts=[query.strip()],
         n_results=n_results,
@@ -99,24 +94,91 @@ def retrieve_documents(collection, query: str, n_results: int = 3,
         ],
     )
 
-def format_context(documents: List[str], metadatas: List[Dict]) -> str:
-    """Format retrieved documents into context"""
+def format_context(
+    documents: List[str],
+    metadatas: List[Dict],
+) -> str:
+    """Build cited LLM context from retrieved chunks."""
     if not documents:
         return ""
-    
-    # TODO: Initialize list with header text for context section
-
-    # TODO: Loop through paired documents and their metadata using enumeration
-        # TODO: Extract mission information from metadata with fallback value
-        # TODO: Clean up mission name formatting (replace underscores, capitalize)
-        # TODO: Extract source information from metadata with fallback value  
-        # TODO: Extract category information from metadata with fallback value
-        # TODO: Clean up category name formatting (replace underscores, capitalize)
-        
-        # TODO: Create formatted source header with index number and extracted information
-        # TODO: Add source header to context parts list
-        
-        # TODO: Check document length and truncate if necessary
-        # TODO: Add truncated or full document content to context parts list
-
-    # TODO: Join all context parts with newlines and return formatted string
+    if len(documents) != len(metadatas):
+        raise ValueError(
+            "documents and metadatas must have equal lengths"
+        )
+    mission_labels = {
+        "apollo11": "Apollo 11",
+        "apollo13": "Apollo 13",
+        "challenger": "Challenger",
+        "sts51l": "Challenger",
+    }
+    context_blocks = []
+    seen_documents = set()
+    for document, metadata in zip(documents, metadatas):
+        if not isinstance(document, str) or not document.strip():
+            continue
+        if not isinstance(metadata, dict):
+            raise ValueError("Each metadata value must be a dictionary")
+        cleaned_document = document.strip()
+        deduplication_key = " ".join(
+            cleaned_document.split()
+        ).casefold()
+        if deduplication_key in seen_documents:
+            continue
+        seen_documents.add(deduplication_key)
+        mission_value = str(
+            metadata.get("mission", "unknown")
+        )
+        mission_key = "".join(
+            character
+            for character in mission_value.casefold()
+            if character.isalnum()
+        )
+        mission = mission_labels.get(
+            mission_key,
+            mission_value,
+        )
+        source = (
+            metadata.get("source_file")
+            or metadata.get("source")
+            or "Unknown source"
+        )
+        filepath = (
+            metadata.get("filepath")
+            or metadata.get("source_path")
+            or "Unknown filepath"
+        )
+        source_type = (
+            metadata.get("source_type")
+            or metadata.get("document_category")
+            or "unknown"
+        )
+        header_lines = [
+            f"[DOCUMENT {len(context_blocks) + 1}]",
+            f"MISSION = {mission}",
+            f"SOURCE = {source}",
+            f"FILEPATH = {filepath}",
+            f"TYPE = {source_type}",
+        ]
+        page_start = metadata.get("page_start")
+        page_end = metadata.get("page_end")
+        if page_start is not None:
+            header_lines.append(
+                f"PAGES = {page_start}-{page_end or page_start}"
+            )
+        line_start = metadata.get("source_line_start")
+        line_end = metadata.get("source_line_end")
+        if line_start is not None:
+            header_lines.append(
+                f"LINES = {line_start}-{line_end or line_start}"
+            )
+        context_blocks.append(
+            "\n".join(header_lines)
+            + "\n\n"
+            + cleaned_document
+        )
+    if not context_blocks:
+        return ""
+    return (
+        "RETRIEVED DOCUMENTS\n\n"
+        + "\n\n---\n\n".join(context_blocks)
+    )
