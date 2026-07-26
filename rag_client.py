@@ -48,18 +48,56 @@ def initialize_rag_system(
 def retrieve_documents(collection, query: str, n_results: int = 3, 
                       mission_filter: Optional[str] = None) -> Optional[Dict]:
     """Retrieve relevant documents from ChromaDB with optional filtering"""
+    if not isinstance(query, str) or not query.strip():
+        raise ValueError("query must not be empty")
 
-    # TODO: Initialize filter variable to None (represents no filtering)
+    if (
+        not isinstance(n_results, int)
+        or isinstance(n_results, bool)
+        or n_results <= 0
+    ):
+        raise ValueError("n_results must be a positive integer")
 
-    # TODO: Check if filter parameter exists and is not set to "all" or equivalent
-    # TODO: If filter conditions are met, create filter dictionary with appropriate field-value pairs
+    where_filter = None
 
-    # TODO: Execute database query with the following parameters:
-        # TODO: Pass search query in the required format
-        # TODO: Set maximum number of results to return
-        # TODO: Apply conditional filter (None for no filtering, dictionary for specific filtering)
+    if (
+        mission_filter
+        and mission_filter.strip().casefold()
+        not in {"all", "all missions"}
+    ):
+        mission_key = "".join(
+            character
+            for character in mission_filter.casefold()
+            if character.isalnum()
+        )
+        mission_aliases = {
+            "apollo11": "apollo11",
+            "apollo13": "apollo13",
+            "challenger": "challenger",
+            "sts51l": "challenger",
+        }
 
-    # TODO: Return query results to caller
+        if mission_key not in mission_aliases:
+            raise ValueError(
+                f"Unsupported mission filter: {mission_filter!r}"
+            )
+
+        where_filter = {
+            "mission": {
+                "$eq": mission_aliases[mission_key]
+            }
+        }
+
+    return collection.query(
+        query_texts=[query.strip()],
+        n_results=n_results,
+        where=where_filter,
+        include=[
+            "documents",
+            "metadatas",
+            "distances",
+        ],
+    )
 
 def format_context(documents: List[str], metadatas: List[Dict]) -> str:
     """Format retrieved documents into context"""
