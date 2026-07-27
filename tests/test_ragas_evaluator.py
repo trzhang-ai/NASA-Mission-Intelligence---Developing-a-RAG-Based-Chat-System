@@ -68,7 +68,16 @@ class EvaluateResponseQualityTests(unittest.TestCase):
         self.addCleanup(self.patches.close)
 
         self.openai_class = self.patches.enter_context(
-            patch("ragas_evaluator.OpenAI")
+            patch(
+                "ragas_evaluator.OpenAI",
+                create=True,
+            )
+        )
+        self.async_openai_class = self.patches.enter_context(
+            patch(
+                "ragas_evaluator.AsyncOpenAI",
+                create=True,
+            )
         )
         self.llm_factory = self.patches.enter_context(
             patch("ragas_evaluator.llm_factory")
@@ -98,10 +107,12 @@ class EvaluateResponseQualityTests(unittest.TestCase):
             )
         )
 
-        self.client = object()
+        self.async_client = object()
         self.evaluator_llm = object()
         self.evaluator_embeddings = object()
-        self.openai_class.return_value = self.client
+        self.async_openai_class.return_value = (
+            self.async_client
+        )
         self.llm_factory.return_value = self.evaluator_llm
         self.embeddings_class.return_value = self.evaluator_embeddings
 
@@ -166,6 +177,7 @@ class EvaluateResponseQualityTests(unittest.TestCase):
                 )
 
         self.openai_class.assert_not_called()
+        self.async_openai_class.assert_not_called()
         self.score_metrics_async.assert_not_awaited()
 
     def test_reports_when_ragas_is_unavailable(self):
@@ -181,6 +193,7 @@ class EvaluateResponseQualityTests(unittest.TestCase):
             {"error": "RAGAS is not available"},
         )
         self.openai_class.assert_not_called()
+        self.async_openai_class.assert_not_called()
 
     def test_evaluates_required_metrics_without_reference(self):
         self.score_metrics_async.return_value = {
@@ -197,17 +210,19 @@ class EvaluateResponseQualityTests(unittest.TestCase):
                 "faithfulness": 0.9,
             },
         )
-        self.openai_class.assert_called_once_with(
+        self.openai_class.assert_not_called()
+        self.async_openai_class.assert_called_once_with(
             api_key="test-key",
             base_url="https://example.test/v1",
         )
         self.llm_factory.assert_called_once_with(
             model="judge-model",
             provider="openai",
-            client=self.client,
+            client=self.async_client,
+            max_tokens=4096,
         )
         self.embeddings_class.assert_called_once_with(
-            client=self.client,
+            client=self.async_client,
             model="embedding-model",
         )
         self.answer_relevancy_class.assert_called_once_with(
@@ -324,7 +339,7 @@ class EvaluateResponseQualityTests(unittest.TestCase):
         )
 
     def test_returns_structured_error_when_setup_fails(self):
-        self.openai_class.side_effect = ValueError(
+        self.async_openai_class.side_effect = ValueError(
             "invalid base URL"
         )
 

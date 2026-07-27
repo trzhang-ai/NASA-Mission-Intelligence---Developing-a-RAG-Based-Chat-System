@@ -1,7 +1,7 @@
 import os
 import asyncio
 from typing import Any, Dict, List, Optional
-from openai import OpenAI
+from openai import AsyncOpenAI
 
 try:
     from ragas.embeddings import OpenAIEmbeddings
@@ -82,7 +82,7 @@ def evaluate_response_quality(
         else None
     )
     try:
-        client = OpenAI(
+        client = AsyncOpenAI(
             api_key=api_key.strip(),
             base_url=normalized_base_url,
         )
@@ -90,6 +90,7 @@ def evaluate_response_quality(
             model=evaluator_model.strip(),
             provider="openai",
             client=client,
+            max_tokens=4096,
         )
         evaluator_embeddings = OpenAIEmbeddings(
             client=client,
