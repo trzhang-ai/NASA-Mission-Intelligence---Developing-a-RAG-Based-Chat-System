@@ -1,12 +1,70 @@
 import unittest
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 from chat import (
+    display_evaluation_metrics,
     evaluate_response_quality,
     generate_response,
     initialize_rag_system,
     retrieve_documents,
 )
+
+
+class DisplayEvaluationMetricsTests(unittest.TestCase):
+    @patch("chat.st.sidebar")
+    def test_handles_non_finite_and_out_of_range_scores(
+        self,
+        mocked_sidebar,
+    ):
+        display_evaluation_metrics(
+            {
+                "response_relevancy": 0.75,
+                "faithfulness": float("nan"),
+                "retrieval_f1": 1.2,
+                "not_a_metric": True,
+            }
+        )
+
+        self.assertEqual(
+            mocked_sidebar.metric.call_args_list,
+            [
+                call(
+                    label="Response Relevancy",
+                    value="0.750",
+                    delta=None,
+                ),
+                call(
+                    label="Retrieval F1",
+                    value="1.200",
+                    delta=None,
+                ),
+            ],
+        )
+        self.assertEqual(
+            mocked_sidebar.progress.call_args_list,
+            [
+                call(0.75),
+                call(1.0),
+            ],
+        )
+        mocked_sidebar.warning.assert_called_once_with(
+            "Faithfulness is unavailable."
+        )
+
+    @patch("chat.st.sidebar")
+    def test_displays_structured_evaluation_error(
+        self,
+        mocked_sidebar,
+    ):
+        display_evaluation_metrics(
+            {"error": "contexts must not be empty"}
+        )
+
+        mocked_sidebar.error.assert_called_once_with(
+            "Evaluation Error: contexts must not be empty"
+        )
+        mocked_sidebar.metric.assert_not_called()
+        mocked_sidebar.progress.assert_not_called()
 
 
 class EvaluateResponseQualityWrapperTests(unittest.TestCase):

@@ -8,6 +8,7 @@ and feedback collection for continuous improvement.
 
 import streamlit as st
 import os
+import math
 import json
 import pandas as pd
 import ragas_evaluator
@@ -38,7 +39,6 @@ st.set_page_config(
 
 def discover_chroma_backends() -> Dict[str, Dict[str, str]]:
     """Discover available ChromaDB backends in the project directory"""
-
     return rag_client.discover_chroma_backends()
 
 def initialize_rag_system(
@@ -68,7 +68,6 @@ def retrieve_documents(collection, query: str, n_results: int = 3,
 
 def format_context(documents: List[str], metadatas: List[Dict]) -> str:
     """Format retrieved documents into context"""
-    
     return rag_client.format_context(documents, metadatas)
 
 def generate_response(
@@ -108,32 +107,37 @@ def evaluate_response_quality(
             "error": f"Evaluation failed: {error}"
         }
 
-def display_evaluation_metrics(scores: Dict[str, float]):
-    """Display evaluation metrics in the sidebar"""
+def display_evaluation_metrics(
+    scores: Dict[str, float | str],
+):
+    """Display valid evaluation metrics in the sidebar."""
     if "error" in scores:
-        st.sidebar.error(f"Evaluation Error: {scores['error']}")
+        st.sidebar.error(
+            f"Evaluation Error: {scores['error']}"
+        )
         return
-    
     st.sidebar.subheader("📊 Response Quality")
-    
     for metric_name, score in scores.items():
-        if isinstance(score, (int, float)):
-            # Color code based on score
-            if score >= 0.8:
-                color = "green"
-            elif score >= 0.6:
-                color = "orange"
-            else:
-                color = "red"
-            
-            st.sidebar.metric(
-                label=metric_name.replace('_', ' ').title(),
-                value=f"{score:.3f}",
-                delta=None
+        if (
+            isinstance(score, bool)
+            or not isinstance(score, (int, float))
+        ):
+            continue
+        label = metric_name.replace("_", " ").title()
+        numeric_score = float(score)
+        if not math.isfinite(numeric_score):
+            st.sidebar.warning(
+                f"{label} is unavailable."
             )
-            
-            # Add progress bar
-            st.sidebar.progress(score)
+            continue
+        st.sidebar.metric(
+            label=label,
+            value=f"{numeric_score:.3f}",
+            delta=None,
+        )
+        st.sidebar.progress(
+            max(0.0, min(numeric_score, 1.0))
+        )
 
 def main():
     st.title("🚀 NASA Space Mission Chat with Evaluation")
