@@ -1,7 +1,79 @@
 import unittest
 from unittest.mock import patch
 
-from chat import generate_response, retrieve_documents
+from chat import (
+    evaluate_response_quality,
+    generate_response,
+    initialize_rag_system,
+    retrieve_documents,
+)
+
+
+class EvaluateResponseQualityWrapperTests(unittest.TestCase):
+    @patch.dict(
+        "chat.os.environ",
+        {"OPENAI_BASE_URL": "https://example.test/v1"},
+        clear=True,
+    )
+    @patch(
+        "chat.ragas_evaluator.evaluate_response_quality"
+    )
+    def test_forwards_sidebar_openai_configuration(
+        self,
+        mocked_evaluate_response_quality,
+    ):
+        expected_scores = {
+            "response_relevancy": 0.9,
+            "faithfulness": 0.8,
+        }
+        mocked_evaluate_response_quality.return_value = (
+            expected_scores
+        )
+
+        result = evaluate_response_quality(
+            question="What happened?",
+            answer="A grounded answer.",
+            contexts=["Retrieved evidence."],
+            openai_key="sidebar-key",
+        )
+
+        self.assertEqual(result, expected_scores)
+        mocked_evaluate_response_quality.assert_called_once_with(
+            question="What happened?",
+            answer="A grounded answer.",
+            contexts=["Retrieved evidence."],
+            openai_api_key="sidebar-key",
+            openai_base_url="https://example.test/v1",
+        )
+
+
+class InitializeRagSystemWrapperTests(unittest.TestCase):
+    @patch.dict(
+        "chat.os.environ",
+        {"OPENAI_BASE_URL": "https://example.test/v1"},
+        clear=True,
+    )
+    @patch("chat.rag_client.initialize_rag_system")
+    def test_forwards_sidebar_openai_configuration(
+        self,
+        mocked_initialize_rag_system,
+    ):
+        expected_result = (object(), True, None)
+        mocked_initialize_rag_system.return_value = expected_result
+
+        result = initialize_rag_system(
+            chroma_dir="chroma_db",
+            collection_name="nasa_collection",
+            openai_key="sidebar-key",
+        )
+
+        self.assertEqual(result, expected_result)
+        mocked_initialize_rag_system.assert_called_once_with(
+            chroma_dir="chroma_db",
+            collection_name="nasa_collection",
+            openai_api_key="sidebar-key",
+            openai_base_url="https://example.test/v1",
+        )
 
 
 class RetrieveDocumentsWrapperTests(unittest.TestCase):

@@ -41,14 +41,21 @@ def discover_chroma_backends() -> Dict[str, Dict[str, str]]:
 
     return rag_client.discover_chroma_backends()
 
-#@st.cache_resource
-def initialize_rag_system(chroma_dir: str, collection_name: str):
-    """Initialize the RAG system with specified backend (cached for performance)"""
-
+def initialize_rag_system(
+    chroma_dir: str,
+    collection_name: str,
+    openai_key: str,
+):
+    """Initialize the RAG system with the selected backend."""
     try:
-       return rag_client.initialize_rag_system(chroma_dir, collection_name)
-    except Exception as e:
-        return None, False, str(e)
+        return rag_client.initialize_rag_system(
+            chroma_dir=chroma_dir,
+            collection_name=collection_name,
+            openai_api_key=openai_key,
+            openai_base_url=os.getenv("OPENAI_BASE_URL"),
+        )
+    except Exception as error:
+        return None, False, str(error)
 
 def retrieve_documents(collection, query: str, n_results: int = 3, 
                       mission_filter: Optional[str] = None) -> Optional[Dict]:
@@ -81,12 +88,25 @@ def generate_response(
         openai_base_url=os.getenv("OPENAI_BASE_URL"),
     )
 
-def evaluate_response_quality(question: str, answer: str, contexts: List[str]) -> Dict[str, float]:
-    """Evaluate response quality using RAGAS metrics"""
+def evaluate_response_quality(
+    question: str,
+    answer: str,
+    contexts: List[str],
+    openai_key: str,
+) -> Dict[str, float | str]:
+    """Evaluate response quality using RAGAS metrics."""
     try:
-        return ragas_evaluator.evaluate_response_quality(question, answer, contexts)
-    except Exception as e:
-        return {"error": f"Evaluation failed: {str(e)}"}
+        return ragas_evaluator.evaluate_response_quality(
+            question=question,
+            answer=answer,
+            contexts=contexts,
+            openai_api_key=openai_key,
+            openai_base_url=os.getenv("OPENAI_BASE_URL"),
+        )
+    except Exception as error:
+        return {
+            "error": f"Evaluation failed: {error}"
+        }
 
 def display_evaluation_metrics(scores: Dict[str, float]):
     """Display evaluation metrics in the sidebar"""
@@ -118,7 +138,6 @@ def display_evaluation_metrics(scores: Dict[str, float]):
 def main():
     st.title("🚀 NASA Space Mission Chat with Evaluation")
     st.markdown("Chat with AI about NASA space missions with real-time quality evaluation")
-    
     # Initialize session state
     if "messages" not in st.session_state:
         st.session_state.messages = []
@@ -128,33 +147,26 @@ def main():
         st.session_state.last_evaluation = None
     if "last_contexts" not in st.session_state:
         st.session_state.last_contexts = []
-    
     # Sidebar for configuration
     with st.sidebar:
         st.header("🔧 Configuration")
-        
         # Discover available backends
         with st.spinner("Discovering ChromaDB backends..."):
             available_backends = discover_chroma_backends()
-        
         if not available_backends:
             st.error("No ChromaDB backends found!")
             st.info("Please run the embedding pipeline first:\n`python run_text_embedding.py`")
             st.stop()
-        
         # Backend selection
         st.subheader("📊 ChromaDB Backend")
         backend_options = {k: v["display_name"] for k, v in available_backends.items()}
-        
         selected_backend_key = st.selectbox(
             "Select Document Collection",
             options=list(backend_options.keys()),
             format_func=lambda x: backend_options[x],
             help="Choose which document collection to use for retrieval"
         )
-        
         selected_backend = available_backends[selected_backend_key]
-        
         # API Key input
         st.subheader("🔑 OpenAI Settings")
         openai_key = st.text_input(
@@ -163,22 +175,18 @@ def main():
             value=os.getenv("OPENAI_API_KEY", ""),
             help="Enter your OpenAI API key"
         )
-        
         if not openai_key:
             st.warning("Please enter your OpenAI API key")
             st.stop()
         else:
             os.environ["CHROMA_OPENAI_API_KEY"] = openai_key
-        
         # Model selection
         default_model = os.getenv("OPENAI_CHAT_MODEL", "gpt-5-nano")
-
         model_choice = st.text_input(
             "OpenAI Model",
             value=default_model,
             help="Enter a chat model supported by your configured API endpoint",
         )
-        
         # Retrieval settings
         st.subheader("🔍 Retrieval Settings")
         n_docs = st.slider("Documents to retrieve", 1, 10, 3)
@@ -194,41 +202,34 @@ def main():
         # Evaluation settings
         st.subheader("📊 Evaluation Settings")
         enable_evaluation = st.checkbox("Enable RAGAS Evaluation", value=RAGAS_AVAILABLE)
-        
         # Initialize RAG system when backend changes
         if (st.session_state.current_backend != selected_backend_key):
             st.session_state.current_backend = selected_backend_key
             # Clear cache to force reinitialization
             st.cache_resource.clear()
-    
     # Initialize RAG system
     with st.spinner("Initializing RAG system..."):
-
         collection, success, error = initialize_rag_system(
-            selected_backend["directory"], 
-            selected_backend["collection_name"]
+            chroma_dir=selected_backend["directory"],
+            collection_name=selected_backend["collection_name"],
+            openai_key=openai_key,
         )
-    
     if not success:
         st.error(f"Failed to initialize RAG system: {error}")
         st.stop()
-    
     # Display evaluation metrics if available
     if st.session_state.last_evaluation and enable_evaluation:
         display_evaluation_metrics(st.session_state.last_evaluation)
-    
     # Display chat messages
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
-    
     # Chat input
     if prompt := st.chat_input("Ask about NASA space missions..."):
         # Add user message to chat history
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
-        
         # Generate assistant response
         with st.chat_message("assistant"):
             with st.spinner("Searching documents and generating response..."):
@@ -239,7 +240,6 @@ def main():
                     n_results=n_docs,
                     mission_filter=mission_choice,
                 )
-                
                 # Format context
                 context = ""
                 contexts_list = []
@@ -247,7 +247,6 @@ def main():
                     context = format_context(docs_result["documents"][0], docs_result["metadatas"][0])
                     contexts_list = docs_result["documents"][0]
                     st.session_state.last_contexts = contexts_list
-                
                 # Generate response
                 try:
                     response = generate_response(
@@ -262,21 +261,19 @@ def main():
                     st.session_state.messages.pop()
                     st.stop()
                 st.markdown(response)
-                
                 # Evaluate response quality if enabled
                 if enable_evaluation and RAGAS_AVAILABLE:
                     with st.spinner("Evaluating response quality..."):
                         evaluation_scores = evaluate_response_quality(
                             prompt, 
                             response, 
-                            contexts_list
+                            contexts_list,
+                            openai_key
                         )
                         st.session_state.last_evaluation = evaluation_scores
-        
         # Add assistant response to chat history
         st.session_state.messages.append({"role": "assistant", "content": response})
         st.rerun()
-
 
 if __name__ == "__main__":
     main()
