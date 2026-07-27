@@ -37,6 +37,7 @@ dependencies = [
 dev = [
     "ipykernel>=6,<7",
     "jupyter>=1.1,<2",
+    "pytest>=8,<10",
 ]
 
 [tool.uv]
