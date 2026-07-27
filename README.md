@@ -91,7 +91,7 @@ test_questions.json
 ├── test_questions.json         # 17 mission questions with reference answers
 ├── evaluation_results_2026-07-28.json
 │                                # Reproducible full-evaluation evidence
-├── submission.ipynb            # Exploratory project notebook
+├── nasa_rag_reference.ipynb    # Offline reference walkthrough
 ├── pyproject.toml              # Project metadata and dependencies
 └── uv.lock                     # Locked dependency versions
 ```
