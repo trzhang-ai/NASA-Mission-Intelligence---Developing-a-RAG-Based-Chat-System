@@ -49,11 +49,28 @@ class LoadTestQuestionsTests(unittest.TestCase):
 
     def test_loads_project_dataset(self):
         project_root = Path(__file__).resolve().parents[1]
-
-        questions = load_test_questions(
-            project_root / "test_questions.json"
+        dataset_path = project_root / "test_questions.json"
+        dataset = json.loads(
+            dataset_path.read_text(encoding="utf-8")
         )
 
+        questions = load_test_questions(
+            dataset_path
+        )
+
+        self.assertIn(
+            "nasa_space_missions_text",
+            dataset["corpus"],
+        )
+        self.assertEqual(
+            dataset["mission_breakdown"],
+            {
+                "apollo11": 2707,
+                "apollo13": 2526,
+                "challenger": 351,
+                "total": 5584,
+            },
+        )
         self.assertEqual(len(questions), 17)
         self.assertEqual(
             {question["mission"] for question in questions},

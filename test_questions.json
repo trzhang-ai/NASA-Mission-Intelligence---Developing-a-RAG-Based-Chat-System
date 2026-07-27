@@ -1,11 +1,11 @@
 {
-  "corpus": "corpus_df.csv (3,064 chunks across 3 NASA missions)",
-  "corpus_note": "All questions and answers are grounded strictly in corpus_df.csv, verified against the 'mission' metadata field and the chunk text. Missions present: apollo11 (1,372 chunks: flight-evaluation report + PAO/TEC/CM transcripts), apollo13 (1,487 chunks: CM/PAO/TEC transcripts only), challenger (205 chunks: three STS-51L mission-audio transcripts only). Apollo 11 was a nominal flight, so its 'disaster_analysis' item covers a real in-report anomaly rather than a mission failure. Challenger and Apollo 13 material is transcript-derived; some proper names are rendered phonetically in the source audio (e.g. Scobee as 'Cobi', Resnik as 'Resnick', Christa as 'Krista') and are given here in their correct spelling.",
+  "corpus": "chroma_db_openai/nasa_space_missions_text (5,584 chunks across 3 NASA missions; chunk_size=500, chunk_overlap=100)",
+  "corpus_note": "The questions and reference answers are grounded in the cleaned NASA source files represented in the current ChromaDB collection. Apollo 11 contains three reports plus PAO/TEC/CM transcripts; Apollo 13 contains CM/PAO/TEC transcripts; Challenger contains three STS-51L mission-audio transcripts. Apollo 11 was a nominal flight, so its 'disaster_analysis' item covers a real in-report anomaly rather than a mission failure. Some transcript proper names are rendered phonetically in the source audio (e.g. Scobee as 'Cobi', Resnik as 'Resnick', Christa as 'Krista') and are given here in their correct spelling.",
   "mission_breakdown": {
-    "apollo11": 1372,
-    "apollo13": 1487,
-    "challenger": 205,
-    "total": 3064
+    "apollo11": 2707,
+    "apollo13": 2526,
+    "challenger": 351,
+    "total": 5584
   },
   "question_count": 17,
   "questions": [
