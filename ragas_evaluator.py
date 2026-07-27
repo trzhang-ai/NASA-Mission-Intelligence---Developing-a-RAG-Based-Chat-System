@@ -1,5 +1,6 @@
 import os
 import asyncio
+import math
 from typing import Any, Dict, List, Optional
 from openai import AsyncOpenAI
 
@@ -61,7 +62,7 @@ def _normalize_ragas_openai_model_args(
 async def _score_metrics_async(
     scorers: Dict[str, Any],
     metric_inputs: Dict[str, Dict[str, Any]],
-) -> Dict[str, float]:
+) -> Dict[str, float | str]:
     metric_names = list(scorers)
     metric_results = await asyncio.gather(
         *(
@@ -69,15 +70,110 @@ async def _score_metrics_async(
                 **metric_inputs[metric_name]
             )
             for metric_name in metric_names
-        )
+        ),
+        return_exceptions=True,
     )
-    return {
-        metric_name: float(metric_result.value)
-        for metric_name, metric_result in zip(
-            metric_names,
-            metric_results,
-        )
-    }
+    scores: Dict[str, float | str] = {}
+    for metric_name, metric_result in zip(
+        metric_names,
+        metric_results,
+    ):
+        if isinstance(metric_result, BaseException):
+            scores[metric_name] = math.nan
+            scores[f"{metric_name}_error"] = (
+                f"{type(metric_result).__name__}: "
+                f"{metric_result}"
+            )
+            continue
+        try:
+            scores[metric_name] = float(metric_result.value)
+        except (AttributeError, TypeError, ValueError) as error:
+            scores[metric_name] = math.nan
+            scores[f"{metric_name}_error"] = (
+                f"{type(error).__name__}: {error}"
+            )
+    return scores
+
+async def _evaluate_metrics_with_client_async(
+    api_key: str,
+    base_url: Optional[str],
+    evaluator_model: str,
+    embedding_model: str,
+    llm_options: Dict[str, Any],
+    reasoning_effort: Optional[str],
+    include_reference_metrics: bool,
+    metric_inputs: Dict[str, Dict[str, Any]],
+) -> Dict[str, float | str]:
+    """Create, use, and close the async client on one event loop."""
+    client: Optional[AsyncOpenAI] = None
+    try:
+        try:
+            client = AsyncOpenAI(
+                api_key=api_key,
+                base_url=base_url,
+            )
+            evaluator_llm = llm_factory(
+                model=evaluator_model,
+                provider="openai",
+                client=client,
+                **llm_options,
+            )
+            _normalize_ragas_openai_model_args(
+                evaluator_llm=evaluator_llm,
+                model_name=evaluator_model,
+                max_tokens=EVALUATOR_MAX_TOKENS,
+                reasoning_effort=reasoning_effort,
+            )
+            evaluator_embeddings = OpenAIEmbeddings(
+                client=client,
+                model=embedding_model,
+            )
+            scorers = {
+                "response_relevancy": AnswerRelevancy(
+                    llm=evaluator_llm,
+                    embeddings=evaluator_embeddings,
+                ),
+                "faithfulness": Faithfulness(
+                    llm=evaluator_llm,
+                ),
+            }
+            if include_reference_metrics:
+                scorers.update(
+                    {
+                        "context_precision": ContextPrecision(
+                            llm=evaluator_llm,
+                        ),
+                        "context_recall": ContextRecall(
+                            llm=evaluator_llm,
+                        ),
+                        "factual_correctness": FactualCorrectness(
+                            llm=evaluator_llm,
+                            mode="f1",
+                        ),
+                    }
+                )
+        except Exception as error:
+            return {
+                "error": (
+                    f"Evaluation setup failed: "
+                    f"{type(error).__name__}: {error}"
+                )
+            }
+        try:
+            return await _score_metrics_async(
+                scorers=scorers,
+                metric_inputs=metric_inputs,
+            )
+        except Exception as error:
+            return {
+                "error": (
+                    f"Evaluation failed: "
+                    f"{type(error).__name__}: {error}"
+                )
+            }
+    finally:
+        if client is not None:
+            await client.close()
 
 def evaluate_response_quality(
     question: str,
@@ -131,58 +227,6 @@ def evaluate_response_quality(
     }
     if reasoning_effort is not None:
         llm_options["reasoning_effort"] = reasoning_effort
-    try:
-        client = AsyncOpenAI(
-            api_key=api_key.strip(),
-            base_url=normalized_base_url,
-        )
-        evaluator_llm = llm_factory(
-            model=normalized_evaluator_model,
-            provider="openai",
-            client=client,
-            **llm_options,
-        )
-        _normalize_ragas_openai_model_args(
-            evaluator_llm=evaluator_llm,
-            model_name=normalized_evaluator_model,
-            max_tokens=EVALUATOR_MAX_TOKENS,
-            reasoning_effort=reasoning_effort,
-        )
-        evaluator_embeddings = OpenAIEmbeddings(
-            client=client,
-            model=embedding_model.strip(),
-        )
-        scorers = {
-            "response_relevancy": AnswerRelevancy(
-                llm=evaluator_llm,
-                embeddings=evaluator_embeddings,
-            ),
-            "faithfulness": Faithfulness(
-                llm=evaluator_llm,
-            ),
-        }
-        if reference is not None:
-            scorers.update(
-                {
-                    "context_precision": ContextPrecision(
-                        llm=evaluator_llm,
-                    ),
-                    "context_recall": ContextRecall(
-                        llm=evaluator_llm,
-                    ),
-                    "factual_correctness": FactualCorrectness(
-                        llm=evaluator_llm,
-                        mode="f1",
-                    ),
-                }
-            )
-    except Exception as error:
-        return {
-            "error": (
-                f"Evaluation setup failed: "
-                f"{type(error).__name__}: {error}"
-            )
-        }
     cleaned_question = question.strip()
     cleaned_answer = answer.strip()
     cleaned_contexts = [
@@ -222,26 +266,47 @@ def evaluate_response_quality(
         )
     try:
         scores = asyncio.run(
-            _score_metrics_async(
-                scorers=scorers,
+            _evaluate_metrics_with_client_async(
+                api_key=api_key.strip(),
+                base_url=normalized_base_url,
+                evaluator_model=normalized_evaluator_model,
+                embedding_model=embedding_model.strip(),
+                llm_options=llm_options,
+                reasoning_effort=reasoning_effort,
+                include_reference_metrics=reference is not None,
                 metric_inputs=metric_inputs,
             )
         )
     except Exception as error:
         return {
             "error": (
-                f"Evaluation failed: "
+                f"Evaluation lifecycle failed: "
                 f"{type(error).__name__}: {error}"
             )
         }
+    if "error" in scores:
+        return scores
     if reference is not None:
-        precision = scores["context_precision"]
-        recall = scores["context_recall"]
-        denominator = precision + recall
-
-        scores["retrieval_f1"] = (
-            0.0
-            if denominator == 0
-            else 2 * precision * recall / denominator
-        )
+        precision = scores.get("context_precision")
+        recall = scores.get("context_recall")
+        if (
+            isinstance(precision, (int, float))
+            and not isinstance(precision, bool)
+            and isinstance(recall, (int, float))
+            and not isinstance(recall, bool)
+            and math.isfinite(precision)
+            and math.isfinite(recall)
+        ):
+            denominator = precision + recall
+            scores["retrieval_f1"] = (
+                0.0
+                if denominator == 0
+                else 2 * precision * recall / denominator
+            )
+        else:
+            scores["retrieval_f1"] = math.nan
+            scores["retrieval_f1_error"] = (
+                "Context precision and context recall must both "
+                "succeed before retrieval F1 can be calculated"
+            )
     return scores

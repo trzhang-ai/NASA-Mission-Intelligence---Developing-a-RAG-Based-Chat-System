@@ -1,4 +1,5 @@
 import asyncio
+import math
 import unittest
 from contextlib import ExitStack
 from types import SimpleNamespace
@@ -16,6 +17,17 @@ class RecordingScorer:
         self.calls.append(kwargs)
         await asyncio.sleep(0)
         return SimpleNamespace(value=self.value)
+
+
+class FailingScorer:
+    def __init__(self, error):
+        self.error = error
+        self.calls = []
+
+    async def ascore(self, **kwargs):
+        self.calls.append(kwargs)
+        await asyncio.sleep(0)
+        raise self.error
 
 
 class ScoreMetricsAsyncTests(unittest.TestCase):
@@ -51,6 +63,54 @@ class ScoreMetricsAsyncTests(unittest.TestCase):
                 "response_relevancy": 0.8,
                 "faithfulness": 0.9,
             },
+        )
+        self.assertEqual(
+            relevancy.calls,
+            [metric_inputs["response_relevancy"]],
+        )
+        self.assertEqual(
+            faithfulness.calls,
+            [metric_inputs["faithfulness"]],
+        )
+
+    def test_preserves_success_when_one_metric_fails(self):
+        relevancy = RecordingScorer(0.8)
+        faithfulness = FailingScorer(
+            RuntimeError("judge unavailable")
+        )
+        scorers = {
+            "response_relevancy": relevancy,
+            "faithfulness": faithfulness,
+        }
+        metric_inputs = {
+            "response_relevancy": {
+                "user_input": "Question",
+                "response": "Answer",
+            },
+            "faithfulness": {
+                "user_input": "Question",
+                "response": "Answer",
+                "retrieved_contexts": ["Context"],
+            },
+        }
+
+        scores = asyncio.run(
+            ragas_evaluator._score_metrics_async(
+                scorers=scorers,
+                metric_inputs=metric_inputs,
+            )
+        )
+
+        self.assertEqual(
+            scores["response_relevancy"],
+            0.8,
+        )
+        self.assertTrue(
+            math.isnan(scores["faithfulness"])
+        )
+        self.assertEqual(
+            scores["faithfulness_error"],
+            "RuntimeError: judge unavailable",
         )
         self.assertEqual(
             relevancy.calls,
@@ -107,7 +167,9 @@ class EvaluateResponseQualityTests(unittest.TestCase):
             )
         )
 
-        self.async_client = object()
+        self.async_client = SimpleNamespace(
+            close=AsyncMock()
+        )
         self.evaluator_llm = SimpleNamespace(
             model_args={
                 "temperature": 0.01,
@@ -238,6 +300,7 @@ class EvaluateResponseQualityTests(unittest.TestCase):
         self.faithfulness_class.assert_called_once_with(
             llm=self.evaluator_llm,
         )
+        self.async_client.close.assert_awaited_once_with()
         self.context_precision_class.assert_not_called()
         self.context_recall_class.assert_not_called()
         self.factual_correctness_class.assert_not_called()
@@ -390,6 +453,35 @@ class EvaluateResponseQualityTests(unittest.TestCase):
 
         self.assertEqual(result["retrieval_f1"], 0.0)
 
+    def test_partial_metric_failure_preserves_other_scores(self):
+        self.score_metrics_async.return_value = {
+            "response_relevancy": 0.8,
+            "faithfulness": 0.9,
+            "context_precision": 0.7,
+            "context_recall": math.nan,
+            "context_recall_error": (
+                "RuntimeError: judge unavailable"
+            ),
+            "factual_correctness": 0.6,
+        }
+
+        result = self.evaluate(reference="Expected answer.")
+
+        self.assertEqual(result["response_relevancy"], 0.8)
+        self.assertEqual(result["faithfulness"], 0.9)
+        self.assertEqual(result["context_precision"], 0.7)
+        self.assertTrue(math.isnan(result["context_recall"]))
+        self.assertEqual(
+            result["context_recall_error"],
+            "RuntimeError: judge unavailable",
+        )
+        self.assertEqual(result["factual_correctness"], 0.6)
+        self.assertTrue(math.isnan(result["retrieval_f1"]))
+        self.assertIn(
+            "must both succeed",
+            result["retrieval_f1_error"],
+        )
+
     def test_returns_structured_error_when_scoring_fails(self):
         self.score_metrics_async.side_effect = RuntimeError(
             "judge unavailable"
@@ -406,6 +498,7 @@ class EvaluateResponseQualityTests(unittest.TestCase):
                 )
             },
         )
+        self.async_client.close.assert_awaited_once_with()
 
     def test_returns_structured_error_when_setup_fails(self):
         self.async_openai_class.side_effect = ValueError(
@@ -423,6 +516,74 @@ class EvaluateResponseQualityTests(unittest.TestCase):
                 )
             },
         )
+        self.async_client.close.assert_not_awaited()
+
+    def test_closes_client_when_setup_fails_after_construction(self):
+        self.llm_factory.side_effect = ValueError(
+            "invalid model configuration"
+        )
+
+        result = self.evaluate()
+
+        self.assertEqual(
+            result,
+            {
+                "error": (
+                    "Evaluation setup failed: "
+                    "ValueError: invalid model configuration"
+                )
+            },
+        )
+        self.async_client.close.assert_awaited_once_with()
+
+    def test_client_scoring_and_close_share_one_event_loop(self):
+        observed_loops = {}
+
+        async def record_close():
+            observed_loops["close"] = (
+                asyncio.get_running_loop()
+            )
+
+        async def record_scoring(**kwargs):
+            observed_loops["score"] = (
+                asyncio.get_running_loop()
+            )
+            return {
+                "response_relevancy": 0.8,
+                "faithfulness": 0.9,
+            }
+
+        loop_client = SimpleNamespace(
+            close=AsyncMock(side_effect=record_close)
+        )
+
+        def create_client(**kwargs):
+            observed_loops["create"] = (
+                asyncio.get_running_loop()
+            )
+            return loop_client
+
+        self.async_openai_class.side_effect = create_client
+        self.score_metrics_async.side_effect = record_scoring
+
+        result = self.evaluate()
+
+        self.assertEqual(
+            result,
+            {
+                "response_relevancy": 0.8,
+                "faithfulness": 0.9,
+            },
+        )
+        self.assertIs(
+            observed_loops["create"],
+            observed_loops["score"],
+        )
+        self.assertIs(
+            observed_loops["score"],
+            observed_loops["close"],
+        )
+        loop_client.close.assert_awaited_once_with()
 
 
 if __name__ == "__main__":
