@@ -108,7 +108,13 @@ class EvaluateResponseQualityTests(unittest.TestCase):
         )
 
         self.async_client = object()
-        self.evaluator_llm = object()
+        self.evaluator_llm = SimpleNamespace(
+            model_args={
+                "temperature": 0.01,
+                "top_p": 0.1,
+                "max_tokens": 4096,
+            }
+        )
         self.evaluator_embeddings = object()
         self.async_openai_class.return_value = (
             self.async_client
@@ -250,6 +256,69 @@ class EvaluateResponseQualityTests(unittest.TestCase):
                     "retrieved_contexts": ["Retrieved context."],
                 },
             },
+        )
+
+    def test_default_gpt54_evaluator_uses_compatible_arguments(self):
+        self.score_metrics_async.return_value = {
+            "response_relevancy": 0.8,
+            "faithfulness": 0.9,
+        }
+
+        result = ragas_evaluator.evaluate_response_quality(
+            question="Question",
+            answer="Answer",
+            contexts=["Context"],
+            embedding_model="embedding-model",
+            openai_api_key="test-key",
+            openai_base_url="https://example.test/v1",
+        )
+
+        self.assertEqual(
+            result,
+            {
+                "response_relevancy": 0.8,
+                "faithfulness": 0.9,
+            },
+        )
+        self.llm_factory.assert_called_once_with(
+            model="gpt-5.4-mini",
+            provider="openai",
+            client=self.async_client,
+            max_tokens=4096,
+            reasoning_effort="low",
+        )
+        self.assertEqual(
+            self.evaluator_llm.model_args,
+            {
+                "temperature": 1.0,
+                "max_completion_tokens": 4096,
+                "reasoning_effort": "low",
+            },
+        )
+
+    def test_uses_minimal_reasoning_for_legacy_gpt5_nano(self):
+        self.score_metrics_async.return_value = {
+            "response_relevancy": 0.8,
+            "faithfulness": 0.9,
+        }
+
+        result = self.evaluate(
+            evaluator_model="  gpt-5-nano  "
+        )
+
+        self.assertEqual(
+            result,
+            {
+                "response_relevancy": 0.8,
+                "faithfulness": 0.9,
+            },
+        )
+        self.llm_factory.assert_called_once_with(
+            model="gpt-5-nano",
+            provider="openai",
+            client=self.async_client,
+            max_tokens=4096,
+            reasoning_effort="minimal",
         )
 
     def test_evaluates_reference_metrics_and_retrieval_f1(self):

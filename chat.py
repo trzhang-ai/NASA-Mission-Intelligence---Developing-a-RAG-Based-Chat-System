@@ -92,6 +92,10 @@ def evaluate_response_quality(
             question=question,
             answer=answer,
             contexts=contexts,
+            evaluator_model=os.getenv(
+                "OPENAI_EVALUATOR_MODEL",
+                ragas_evaluator.DEFAULT_EVALUATOR_MODEL,
+            ),
             openai_api_key=openai_key,
             openai_base_url=os.getenv("OPENAI_BASE_URL"),
         )
@@ -179,7 +183,10 @@ def main():
             st.warning("Please enter your OpenAI API key")
             st.stop()
         # Model selection
-        default_model = os.getenv("OPENAI_CHAT_MODEL", "gpt-5-nano")
+        default_model = os.getenv(
+            "OPENAI_CHAT_MODEL",
+            llm_client.DEFAULT_GENERATOR_MODEL,
+        )
         model_choice = st.text_input(
             "OpenAI Model",
             value=default_model,

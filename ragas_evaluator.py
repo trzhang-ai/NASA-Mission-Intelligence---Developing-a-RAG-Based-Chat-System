@@ -3,6 +3,9 @@ import asyncio
 from typing import Any, Dict, List, Optional
 from openai import AsyncOpenAI
 
+DEFAULT_EVALUATOR_MODEL = "gpt-5.4-mini"
+EVALUATOR_MAX_TOKENS = 4096
+
 try:
     from ragas.embeddings import OpenAIEmbeddings
     from ragas.llms import llm_factory
@@ -16,6 +19,44 @@ try:
     RAGAS_AVAILABLE = True
 except ImportError:
     RAGAS_AVAILABLE = False
+
+def _reasoning_effort_for_model(
+    model_name: str,
+) -> Optional[str]:
+    """Return a supported low-cost reasoning effort when known."""
+    normalized_model = model_name.casefold()
+    if normalized_model.startswith("gpt-5."):
+        return "low"
+    if (
+        normalized_model == "gpt-5"
+        or normalized_model.startswith("gpt-5-")
+    ):
+        return "minimal"
+    return None
+
+def _normalize_ragas_openai_model_args(
+    evaluator_llm: Any,
+    model_name: str,
+    max_tokens: int,
+    reasoning_effort: Optional[str],
+) -> None:
+    """Repair dotted GPT-5 request arguments for RAGAS 0.4.3."""
+    if not model_name.casefold().startswith("gpt-5."):
+        return
+    model_args = getattr(evaluator_llm, "model_args", None)
+    if not isinstance(model_args, dict):
+        raise TypeError(
+            "RAGAS evaluator LLM must expose model_args"
+        )
+
+    # RAGAS 0.4.3 tries int("5.4"), misses the reasoning-model
+    # branch, and otherwise sends unsupported legacy parameters.
+    model_args.pop("max_tokens", None)
+    model_args.pop("top_p", None)
+    model_args["temperature"] = 1.0
+    model_args["max_completion_tokens"] = max_tokens
+    if reasoning_effort is not None:
+        model_args["reasoning_effort"] = reasoning_effort
 
 async def _score_metrics_async(
     scorers: Dict[str, Any],
@@ -42,7 +83,7 @@ def evaluate_response_quality(
     question: str,
     answer: str,
     contexts: List[str],
-    evaluator_model: str = "gpt-5-nano",
+    evaluator_model: str = DEFAULT_EVALUATOR_MODEL,
     reference: Optional[str] = None,
     embedding_model: str = "text-embedding-3-small",
     openai_api_key: Optional[str] = None,
@@ -81,16 +122,31 @@ def evaluate_response_quality(
         if isinstance(base_url, str) and base_url.strip()
         else None
     )
+    normalized_evaluator_model = evaluator_model.strip()
+    reasoning_effort = _reasoning_effort_for_model(
+        normalized_evaluator_model
+    )
+    llm_options: Dict[str, Any] = {
+        "max_tokens": EVALUATOR_MAX_TOKENS
+    }
+    if reasoning_effort is not None:
+        llm_options["reasoning_effort"] = reasoning_effort
     try:
         client = AsyncOpenAI(
             api_key=api_key.strip(),
             base_url=normalized_base_url,
         )
         evaluator_llm = llm_factory(
-            model=evaluator_model.strip(),
+            model=normalized_evaluator_model,
             provider="openai",
             client=client,
-            max_tokens=4096,
+            **llm_options,
+        )
+        _normalize_ragas_openai_model_args(
+            evaluator_llm=evaluator_llm,
+            model_name=normalized_evaluator_model,
+            max_tokens=EVALUATOR_MAX_TOKENS,
+            reasoning_effort=reasoning_effort,
         )
         evaluator_embeddings = OpenAIEmbeddings(
             client=client,

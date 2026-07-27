@@ -2,6 +2,8 @@ import os
 from typing import Dict, List, Optional
 from openai import OpenAI
 
+DEFAULT_GENERATOR_MODEL = "gpt-5.4-nano"
+
 DEVELOPER_PROMPT = (
     "You are a NASA mission expert. "
     "Answer using only factual evidence in RETRIEVED DOCUMENTS. "

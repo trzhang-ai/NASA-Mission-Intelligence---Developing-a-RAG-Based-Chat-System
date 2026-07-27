@@ -156,7 +156,7 @@ def evaluate_one_question(
     top_k: int,
     openai_api_key: str,
     generator_model: str,
-    evaluator_model: str = "gpt-5-nano",
+    evaluator_model: str = ragas_evaluator.DEFAULT_EVALUATOR_MODEL,
     embedding_model: str = "text-embedding-3-small",
     openai_base_url: Optional[str] = None,
 ) -> Dict[str, Any]:
@@ -199,7 +199,7 @@ def evaluate_batch(
     top_k: int,
     openai_api_key: str,
     generator_model: str,
-    evaluator_model: str = "gpt-5-nano",
+    evaluator_model: str = ragas_evaluator.DEFAULT_EVALUATOR_MODEL,
     embedding_model: str = "text-embedding-3-small",
     openai_base_url: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
@@ -295,7 +295,7 @@ def run_batch_evaluation(
     top_k: int,
     openai_api_key: str,
     generator_model: str,
-    evaluator_model: str = "gpt-5-nano",
+    evaluator_model: str = ragas_evaluator.DEFAULT_EVALUATOR_MODEL,
     embedding_model: str = "text-embedding-3-small",
     openai_base_url: Optional[str] = None,
 ) -> Dict[str, Any]:
@@ -414,11 +414,11 @@ def build_argument_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--generator-model",
-        default="gpt-5-nano",
+        default=llm_client.DEFAULT_GENERATOR_MODEL,
     )
     parser.add_argument(
         "--evaluator-model",
-        default="gpt-5-nano",
+        default=ragas_evaluator.DEFAULT_EVALUATOR_MODEL,
     )
     parser.add_argument(
         "--embedding-model",

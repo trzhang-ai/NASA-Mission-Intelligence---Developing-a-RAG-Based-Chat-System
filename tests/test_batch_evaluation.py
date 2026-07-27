@@ -1003,11 +1003,11 @@ class BuildArgumentParserTests(unittest.TestCase):
         self.assertEqual(arguments.top_k, 5)
         self.assertEqual(
             arguments.generator_model,
-            "gpt-5-nano",
+            "gpt-5.4-nano",
         )
         self.assertEqual(
             arguments.evaluator_model,
-            "gpt-5-nano",
+            "gpt-5.4-mini",
         )
         self.assertEqual(
             arguments.embedding_model,

@@ -100,6 +100,7 @@ class EvaluateResponseQualityWrapperTests(unittest.TestCase):
             question="What happened?",
             answer="A grounded answer.",
             contexts=["Retrieved evidence."],
+            evaluator_model="gpt-5.4-mini",
             openai_api_key="sidebar-key",
             openai_base_url="https://example.test/v1",
         )
