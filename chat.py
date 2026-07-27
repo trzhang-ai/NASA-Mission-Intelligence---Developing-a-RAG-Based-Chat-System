@@ -9,8 +9,6 @@ and feedback collection for continuous improvement.
 import streamlit as st
 import os
 import math
-import json
-import pandas as pd
 import ragas_evaluator
 import rag_client
 import llm_client
@@ -22,13 +20,8 @@ load_dotenv(
     dotenv_path=Path(__file__).resolve().parent / ".env"
 )
 
-# RAGAS imports
-try:
-    from ragas import SingleTurnSample
-    RAGAS_AVAILABLE = True
-except ImportError:
-    RAGAS_AVAILABLE = False
-    st.warning("RAGAS not available. Install with: pip install ragas")
+# Use the evaluator's RAGAS compatibility check.
+RAGAS_AVAILABLE = ragas_evaluator.RAGAS_AVAILABLE
 
 # Page configuration
 st.set_page_config(
@@ -159,7 +152,10 @@ def main():
             available_backends = discover_chroma_backends()
         if not available_backends:
             st.error("No ChromaDB backends found!")
-            st.info("Please run the embedding pipeline first:\n`python run_text_embedding.py`")
+            st.info(
+                "Please run the embedding pipeline first:\n"
+                "`uv run python embedding_pipeline.py`"
+            )
             st.stop()
         # Backend selection
         st.subheader("📊 ChromaDB Backend")
@@ -182,8 +178,6 @@ def main():
         if not openai_key:
             st.warning("Please enter your OpenAI API key")
             st.stop()
-        else:
-            os.environ["CHROMA_OPENAI_API_KEY"] = openai_key
         # Model selection
         default_model = os.getenv("OPENAI_CHAT_MODEL", "gpt-5-nano")
         model_choice = st.text_input(
