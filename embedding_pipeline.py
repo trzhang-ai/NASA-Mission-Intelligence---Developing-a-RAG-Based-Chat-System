@@ -492,40 +492,226 @@ class ChromaEmbeddingPipelineTextOnly:
         
         return filtered_files
     
+    def aggregate_cleaned_records_by_file(
+        self,
+        cleaned_df: Any,
+    ) -> Dict[Path, Tuple[str, Dict[str, Any]]]:
+        """Aggregate atomic transcript turns into file-level text."""
+        records_by_file: Dict[
+            Path,
+            List[Tuple[str, Dict[str, Any]]],
+        ] = {}
+        for position, row in cleaned_df.iterrows():
+            document = row["document"]
+            metadata = row["metadata"]
+            if not isinstance(document, str) or not document.strip():
+                raise ValueError(
+                    f"Document at position {position} must not be empty"
+                )
+            if not isinstance(metadata, dict):
+                raise ValueError(
+                    f"Metadata at position {position} must be a dictionary"
+                )
+            source_path = metadata.get("source_path")
+            if not source_path:
+                raise ValueError(
+                    f"Metadata at position {position} has no source_path"
+                )
+            file_path = Path(source_path)
+            records_by_file.setdefault(
+                file_path,
+                [],
+            ).append((document.strip(), metadata.copy()))
+        aggregated_by_file = {}
+        for file_path, records in records_by_file.items():
+            common_fields = (
+                "collection",
+                "mission",
+                "source_type",
+                "source_file",
+                "source_path",
+                "doc_id",
+            )
+            for field_name in common_fields:
+                values = {
+                    str(metadata.get(field_name, "")).strip()
+                    for _, metadata in records
+                }
+                if len(values) != 1 or "" in values:
+                    raise ValueError(
+                        f"Records for {file_path} must share one "
+                        f"non-empty {field_name}"
+                    )
+            source_type = records[0][1]["source_type"]
+            if source_type == "report":
+                rendered_records = []
+
+                for block_index, (
+                    document,
+                    metadata,
+                ) in enumerate(records):
+                    page_start = metadata.get("page_start")
+                    page_end = metadata.get("page_end")
+
+                    if (
+                        not isinstance(page_start, int)
+                        or isinstance(page_start, bool)
+                        or not isinstance(page_end, int)
+                        or isinstance(page_end, bool)
+                        or page_start < 1
+                        or page_end < page_start
+                    ):
+                        raise ValueError(
+                            "Report records must have valid "
+                            "page_start and page_end values"
+                        )
+
+                    rendered_records.append(
+                        f"[block={block_index:05d} "
+                        f"pages={page_start}-{page_end}]\n"
+                        f"{document}"
+                    )
+                first_metadata = records[0][1]
+                aggregated_metadata = {
+                    field_name: first_metadata[field_name]
+                    for field_name in common_fields
+                }
+                aggregated_metadata["source"] = (
+                    first_metadata["doc_id"]
+                )
+                aggregated_metadata["record_count"] = len(
+                    records
+                )
+                aggregated_metadata["page_start"] = min(
+                    metadata["page_start"]
+                    for _, metadata in records
+                )
+                aggregated_metadata["page_end"] = max(
+                    metadata["page_end"]
+                    for _, metadata in records
+                )
+
+                aggregated_by_file[file_path] = (
+                    "\n\n".join(rendered_records),
+                    aggregated_metadata,
+                )
+                continue
+            if source_type != "transcript":
+                raise ValueError(
+                    "Transcript aggregation currently supports only "
+                    "source_type='transcript'"
+                )
+            for _, metadata in records:
+                utterance_index = metadata.get(
+                    "utterance_index"
+                )
+                if (
+                    not isinstance(utterance_index, int)
+                    or isinstance(utterance_index, bool)
+                    or utterance_index < 0
+                ):
+                    raise ValueError(
+                        "Transcript utterance_index must be a "
+                        "non-negative integer"
+                    )
+            ordered_records = sorted(
+                records,
+                key=lambda item: item[1]["utterance_index"],
+            )
+            rendered_records = []
+            for document, metadata in ordered_records:
+                tags = [
+                    f"utt={metadata['utterance_index']:06d}"
+                ]
+                timestamp = str(
+                    metadata.get("timestamp", "")
+                ).strip()
+                speaker = str(
+                    metadata.get("speaker", "")
+                ).strip()
+                line_start = metadata.get(
+                    "source_line_start"
+                )
+                line_end = metadata.get(
+                    "source_line_end"
+                )
+                if timestamp:
+                    tags.append(f"time={timestamp}")
+                if speaker:
+                    tags.append(f"speaker={speaker}")
+                if line_start is not None:
+                    tags.append(
+                        f"lines={line_start}-"
+                        f"{line_end or line_start}"
+                    )
+                if metadata.get("timestamp_valid") is False:
+                    tags.append("time_valid=false")
+
+                rendered_records.append(
+                    f"[{' '.join(tags)}]\n{document}"
+                )
+            first_metadata = ordered_records[0][1]
+            aggregated_metadata = {
+                field_name: first_metadata[field_name]
+                for field_name in common_fields
+            }
+            aggregated_metadata["source"] = (
+                first_metadata["doc_id"]
+            )
+            aggregated_metadata["record_count"] = len(
+                ordered_records
+            )
+            line_starts = [
+                metadata["source_line_start"]
+                for _, metadata in ordered_records
+                if metadata.get("source_line_start") is not None
+            ]
+            line_ends = [
+                metadata["source_line_end"]
+                for _, metadata in ordered_records
+                if metadata.get("source_line_end") is not None
+            ]
+            if line_starts:
+                aggregated_metadata["source_line_start"] = min(
+                    line_starts
+                )
+            if line_ends:
+                aggregated_metadata["source_line_end"] = max(
+                    line_ends
+                )
+            aggregated_by_file[file_path] = (
+                "\n".join(rendered_records),
+                aggregated_metadata,
+            )
+        return aggregated_by_file
+
     def chunk_cleaned_records_by_file(
         self,
         cleaned_df: Any,
     ) -> Dict[Path, List[Tuple[str, Dict[str, Any]]]]:
         """
         Chunk validated cleaner records and group chunks by source file.
-
         This method performs no OpenAI calls and no ChromaDB writes.
         """
+        aggregated_by_file = (
+            self.aggregate_cleaned_records_by_file(
+                cleaned_df
+            )
+        )
         documents_by_file: Dict[
             Path,
             List[Tuple[str, Dict[str, Any]]],
         ] = {}
-
-        for position, row in cleaned_df.iterrows():
-            document = row["document"]
-            metadata = row["metadata"]
-
-            if not isinstance(metadata, dict):
-                raise ValueError(
-                    f"Metadata at position {position} must be a dictionary"
+        for file_path, (
+            aggregated_text,
+            aggregated_metadata,
+        ) in aggregated_by_file.items():
+            documents_by_file[file_path] = (
+                self.chunk_text(
+                    aggregated_text,
+                    aggregated_metadata,
                 )
-
-            source_path = metadata.get("source_path")
-            if not source_path:
-                raise ValueError(
-                    f"Metadata at position {position} has no source_path"
-                )
-
-            file_path = Path(source_path)
-            chunks = self.chunk_text(document, metadata)
-
-            documents_by_file.setdefault(file_path, []).extend(chunks)
-
+            )
         return documents_by_file
 
     def add_documents_to_collection(self, documents: List[Tuple[str, Dict[str, Any]]], 
@@ -542,7 +728,6 @@ class ChromaEmbeddingPipelineTextOnly:
                         'skip' - skip existing documents
                         'update' - update existing documents
                         'replace' - delete all existing documents from file and re-add
-            
         Returns:
             Dictionary with counts of added, updated, and skipped documents
         """

@@ -2,7 +2,312 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pandas as pd
+
 from embedding_pipeline import ChromaEmbeddingPipelineTextOnly
+
+
+class CleanedRecordAggregationTests(unittest.TestCase):
+    def test_aggregates_transcript_turns_in_source_order(
+        self,
+    ):
+        pipeline = object.__new__(
+            ChromaEmbeddingPipelineTextOnly
+        )
+        source_path = Path(
+            "data_text/apollo11/transcript.txt"
+        )
+        common_metadata = {
+            "collection": "apollo11",
+            "mission": "Apollo 11",
+            "source_type": "transcript",
+            "source_file": source_path.name,
+            "source_path": str(source_path),
+            "doc_id": "apollo11_transcript",
+            "timestamp_valid": True,
+        }
+        cleaned_df = pd.DataFrame(
+            [
+                {
+                    "id": "turn-1",
+                    "document": "Roger. Proceed.",
+                    "metadata": {
+                        **common_metadata,
+                        "source": "turn-1",
+                        "utterance_index": 1,
+                        "speaker": "CDR",
+                        "timestamp": "000 00 00 20",
+                        "timestamp_sec": 20,
+                        "source_line_start": 12,
+                        "source_line_end": 13,
+                    },
+                },
+                {
+                    "id": "turn-0",
+                    "document": "You are go for landing.",
+                    "metadata": {
+                        **common_metadata,
+                        "source": "turn-0",
+                        "utterance_index": 0,
+                        "speaker": "CC",
+                        "timestamp": "000 00 00 10",
+                        "timestamp_sec": 10,
+                        "source_line_start": 10,
+                        "source_line_end": 11,
+                    },
+                },
+            ]
+        )
+
+        aggregated = (
+            pipeline.aggregate_cleaned_records_by_file(
+                cleaned_df
+            )
+        )
+
+        self.assertEqual(list(aggregated), [source_path])
+        text, metadata = aggregated[source_path]
+        self.assertLess(
+            text.index("You are go for landing."),
+            text.index("Roger. Proceed."),
+        )
+        self.assertIn("utt=000000", text)
+        self.assertIn("time=000 00 00 10", text)
+        self.assertIn("speaker=CC", text)
+        self.assertIn("lines=10-11", text)
+        self.assertIn("utt=000001", text)
+        self.assertIn("speaker=CDR", text)
+        self.assertEqual(
+            metadata,
+            {
+                "collection": "apollo11",
+                "mission": "Apollo 11",
+                "source_type": "transcript",
+                "source_file": source_path.name,
+                "source_path": str(source_path),
+                "doc_id": "apollo11_transcript",
+                "source": "apollo11_transcript",
+                "record_count": 2,
+                "source_line_start": 10,
+                "source_line_end": 13,
+            },
+        )
+
+    def test_aggregates_report_blocks_with_page_provenance(
+        self,
+    ):
+        pipeline = object.__new__(
+            ChromaEmbeddingPipelineTextOnly
+        )
+        source_path = Path(
+            "data_text/apollo13/mission_report.txt"
+        )
+        common_metadata = {
+            "collection": "apollo13",
+            "mission": "Apollo 13",
+            "source_type": "report",
+            "source_file": source_path.name,
+            "source_path": str(source_path),
+            "doc_id": "apollo13_mission_report",
+            "report_type": "mission_report",
+        }
+        cleaned_df = pd.DataFrame(
+            [
+                {
+                    "id": "report-0",
+                    "document": (
+                        "1.0 Mission Overview\n\n"
+                        "Apollo 13 launched on April 11, 1970."
+                    ),
+                    "metadata": {
+                        **common_metadata,
+                        "source": "report-0",
+                        "section_path": "1.0 Mission Overview",
+                        "page_start": 3,
+                        "page_end": 3,
+                    },
+                },
+                {
+                    "id": "report-1",
+                    "document": (
+                        "2.0 Anomaly\n\n"
+                        "An oxygen tank failure changed the mission."
+                    ),
+                    "metadata": {
+                        **common_metadata,
+                        "source": "report-1",
+                        "section_path": "2.0 Anomaly",
+                        "page_start": 8,
+                        "page_end": 9,
+                    },
+                },
+            ]
+        )
+
+        aggregated = (
+            pipeline.aggregate_cleaned_records_by_file(
+                cleaned_df
+            )
+        )
+
+        self.assertEqual(list(aggregated), [source_path])
+        text, metadata = aggregated[source_path]
+        self.assertLess(
+            text.index("1.0 Mission Overview"),
+            text.index("2.0 Anomaly"),
+        )
+        self.assertIn("block=00000", text)
+        self.assertIn("pages=3-3", text)
+        self.assertIn("block=00001", text)
+        self.assertIn("pages=8-9", text)
+        self.assertIn(
+            "Apollo 13 launched on April 11, 1970.",
+            text,
+        )
+        self.assertIn(
+            "An oxygen tank failure changed the mission.",
+            text,
+        )
+        self.assertEqual(
+            metadata,
+            {
+                "collection": "apollo13",
+                "mission": "Apollo 13",
+                "source_type": "report",
+                "source_file": source_path.name,
+                "source_path": str(source_path),
+                "doc_id": "apollo13_mission_report",
+                "source": "apollo13_mission_report",
+                "record_count": 2,
+                "page_start": 3,
+                "page_end": 9,
+            },
+        )
+
+    def test_preserves_invalid_transcript_timestamp(
+        self,
+    ):
+        pipeline = object.__new__(
+            ChromaEmbeddingPipelineTextOnly
+        )
+        source_path = Path(
+            "data_text/apollo13/transcript.txt"
+        )
+        cleaned_df = pd.DataFrame(
+            [
+                {
+                    "id": "turn-invalid-time",
+                    "document": (
+                        "The timestamp contains an OCR error."
+                    ),
+                    "metadata": {
+                        "collection": "apollo13",
+                        "mission": "Apollo 13",
+                        "source_type": "transcript",
+                        "source_file": source_path.name,
+                        "source_path": str(source_path),
+                        "doc_id": "apollo13_transcript",
+                        "source": "turn-invalid-time",
+                        "utterance_index": 0,
+                        "speaker": "CC",
+                        "timestamp": "OCR 55 99 99",
+                        "timestamp_valid": False,
+                        "source_line_start": 40,
+                        "source_line_end": 41,
+                    },
+                },
+            ]
+        )
+
+        aggregated = (
+            pipeline.aggregate_cleaned_records_by_file(
+                cleaned_df
+            )
+        )
+
+        text, metadata = aggregated[source_path]
+        self.assertIn("time=OCR 55 99 99", text)
+        self.assertIn("time_valid=false", text)
+        self.assertNotIn("timestamp_sec=", text)
+        self.assertNotIn("timestamp_sec", metadata)
+
+    def test_chunks_each_aggregated_file_once(self):
+        pipeline = object.__new__(
+            ChromaEmbeddingPipelineTextOnly
+        )
+        transcript_path = Path(
+            "data_text/apollo11/transcript.txt"
+        )
+        report_path = Path(
+            "data_text/apollo13/mission_report.txt"
+        )
+        transcript_metadata = {
+            "source_type": "transcript",
+            "source_path": str(transcript_path),
+        }
+        report_metadata = {
+            "source_type": "report",
+            "source_path": str(report_path),
+        }
+        cleaned_df = pd.DataFrame()
+        pipeline.aggregate_cleaned_records_by_file = (
+            MagicMock(
+                return_value={
+                    transcript_path: (
+                        "aggregated transcript",
+                        transcript_metadata,
+                    ),
+                    report_path: (
+                        "aggregated report",
+                        report_metadata,
+                    ),
+                }
+            )
+        )
+        pipeline.chunk_text = MagicMock(
+            side_effect=lambda text, metadata: [
+                (
+                    f"chunked: {text}",
+                    metadata.copy(),
+                )
+            ]
+        )
+
+        documents_by_file = (
+            pipeline.chunk_cleaned_records_by_file(
+                cleaned_df
+            )
+        )
+
+        pipeline.aggregate_cleaned_records_by_file.assert_called_once_with(
+            cleaned_df
+        )
+        self.assertEqual(pipeline.chunk_text.call_count, 2)
+        pipeline.chunk_text.assert_any_call(
+            "aggregated transcript",
+            transcript_metadata,
+        )
+        pipeline.chunk_text.assert_any_call(
+            "aggregated report",
+            report_metadata,
+        )
+        self.assertEqual(
+            documents_by_file,
+            {
+                transcript_path: [
+                    (
+                        "chunked: aggregated transcript",
+                        transcript_metadata,
+                    )
+                ],
+                report_path: [
+                    (
+                        "chunked: aggregated report",
+                        report_metadata,
+                    )
+                ],
+            },
+        )
 
 
 class ChunkingRubricTests(unittest.TestCase):
